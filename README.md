@@ -9,7 +9,7 @@ DevSync keeps Xcode apps built, signed, and synced to a paired iPhone over Wi-Fi
 
 ### macOS
 
-[**Download DevSync for macOS**](https://github.com/Lin-Cris/DevSync/releases/latest/download/DevSync-macos-universal.dmg) · [View all releases](https://github.com/Lin-Cris/DevSync/releases/latest)
+[**Download DevSync for macOS**](https://github.com/Lin-Cris/DevSync/releases/latest/download/DevSync-darwin-universal.dmg) · [View all releases](https://github.com/Lin-Cris/DevSync/releases/latest)
 
 The macOS build is universal for Apple silicon and Intel Macs. If macOS warns that the app is from an unidentified developer, open it from Finder with Control-click → Open. Release signing and notarization can be enabled by the maintainer in GitHub Actions.
 
@@ -44,7 +44,7 @@ For development:
 bun tauri dev
 ```
 
-The local package is written to `src-tauri/target/debug/bundle/macos/DevSync.app`. GitHub Actions builds release artifacts for macOS, Windows, and Linux; DevSync's Xcode deployment workflow is macOS-first.
+The local package is written to `src-tauri/target/debug/bundle/macos/DevSync.app`. GitHub Actions builds release artifacts for macOS and Linux; DevSync's Xcode deployment workflow is macOS-first.
 
 ## Project notes
 
