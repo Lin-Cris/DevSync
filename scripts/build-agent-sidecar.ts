@@ -93,10 +93,15 @@ if (target === "universal-apple-darwin") {
   await copyFile(armPath, armStagedPath);
   await copyFile(intelPath, intelStagedPath);
   run(["lipo", "-create", armPath, intelPath, "-output", stagedPath]);
+  const universalTargetDirectory = join(tauriRoot, "target", target, profile);
+  const universalTargetPath = join(universalTargetDirectory, `devsync-agent${extension}`);
+  await mkdir(universalTargetDirectory, { recursive: true });
+  await copyFile(stagedPath, universalTargetPath);
   if (!isWindows) {
     await chmod(armStagedPath, 0o755);
     await chmod(intelStagedPath, 0o755);
     await chmod(stagedPath, 0o755);
+    await chmod(universalTargetPath, 0o755);
   }
   console.log(`Staged ${stagedPath}`);
 } else {
