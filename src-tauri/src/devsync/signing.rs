@@ -106,6 +106,9 @@ pub fn signing_state(remaining_seconds: Option<i64>) -> &'static str {
 /// serialization, but it must never be treated as a durable clock: a value
 /// captured during the build becomes stale as soon as time passes.
 pub fn refresh_status(status: &mut SigningStatus) {
+    if status.last_inspected_at.is_empty() {
+        status.last_inspected_at = Utc::now().to_rfc3339();
+    }
     let remaining_seconds = status
         .expiration_date
         .as_deref()
@@ -188,6 +191,14 @@ mod tests {
         refresh_status(&mut status);
         assert!(status.remaining_seconds.unwrap_or_default() > 0);
         assert_eq!(status.status, "valid");
+    }
+
+    #[test]
+    fn repairs_a_legacy_missing_inspection_timestamp() {
+        let mut status = status_for_test("2030-01-01T00:00:00Z", Some(1));
+        status.last_inspected_at.clear();
+        refresh_status(&mut status);
+        assert!(!status.last_inspected_at.is_empty());
     }
 
     #[test]

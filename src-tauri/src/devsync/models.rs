@@ -82,6 +82,9 @@ pub struct SigningStatus {
     pub profile_name: Option<String>,
     pub expiration_date: Option<String>,
     pub remaining_seconds: Option<i64>,
+    /// Added after the first persisted workspace format. Keep old stores
+    /// readable so a missing inspection timestamp cannot hide all workspaces.
+    #[serde(default)]
     pub last_inspected_at: String,
     pub status: String,
 }
