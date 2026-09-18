@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: DevSync documentation
+    url: https://github.com/Lin-Cris/DevSync/blob/main/DEVSYNC.md
+    about: Read the architecture and current limitations before opening an issue.

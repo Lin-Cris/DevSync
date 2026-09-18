@@ -1,0 +1,67 @@
+name: Bug report
+description: Report a DevSync bug
+body:
+  - type: markdown
+    attributes:
+      value: "Thank you for helping improve DevSync. Please include enough detail to reproduce the issue."
+  - type: textarea
+    id: info
+    attributes:
+      label: Describe the issue
+      description: Include the steps that reproduce the problem.
+      placeholder: Description here...
+    validations:
+      required: true
+  - type: textarea
+    id: error
+    attributes:
+      label: Error or log excerpt
+      description: "Paste the visible error, a relevant DevSync log excerpt, or a screenshot. Do not include Apple credentials or private signing material."
+      placeholder: Paste details here
+  - type: checkboxes
+    id: requirements
+    attributes:
+      label: Requirements checked
+      description: Confirm the basic device and Xcode requirements before filing.
+      options:
+        - label: I have Xcode and its command-line tools installed.
+          required: true
+        - label: My iPhone or iPad is paired, trusted, and reachable.
+          required: true
+  - type: input
+    id: os
+    attributes:
+      label: macOS version
+      placeholder: macOS 26.0
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: DevSync version
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: input
+    id: ios
+    attributes:
+      label: iOS version
+      placeholder: "26.0"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device model
+      placeholder: iPhone 16
+    validations:
+      required: true
+  - type: checkboxes
+    id: device_state
+    attributes:
+      label: Device state
+      options:
+        - label: Developer Mode is enabled when required.
+          required: true
+        - label: I reproduced the issue after restarting DevSync and the device.
+          required: true

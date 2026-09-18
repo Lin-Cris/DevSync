@@ -1,0 +1,13 @@
+export type XcodeContainer = { path: string; containerType: "workspace" | "project" };
+export type XcodeMetadata = { schemes: string[]; configurations: string[]; targets: string[]; productName?: string; bundleIdentifier?: string; sdkRoot?: string; supportedPlatforms?: string; developmentTeam?: string; codeSignStyle?: string; productType?: string };
+export type SigningStatus = { teamIdentifier?: string; profileUuid?: string; applicationIdentifier?: string; profileName?: string; expirationDate?: string; remainingSeconds?: number; lastInspectedAt: string; status: "valid" | "expiringSoon" | "expired" | "unknown" };
+export type Workspace = { id: string; folderPath: string; displayName: string; createdAt: string; updatedAt: string; xcodeContainerPath?: string; containerType?: string; selectedScheme?: string; preBuildCommand?: string; preBuildWorkingDirectory?: string; preBuildEnabled?: boolean; productName?: string; bundleIdentifier?: string; buildConfiguration?: string; signingTeam?: string; signingStatus?: SigningStatus; autoSync: boolean; changesDetected: boolean; backgroundState?: string; lastBuildStatus?: "succeeded" | "failed"; lastBuildAt?: string; lastArtifactPath?: string; lastBuildLogPath?: string; lastArtifactFingerprintPath?: string; lastInstallStatus?: "installed" | "failed"; lastInstallAt?: string; lastInstallDeviceId?: string; lastInstalledArtifactPath?: string; lastInstallLogPath?: string; metadataError?: string; unavailable: boolean };
+export type WorkspaceInspection = { workspace: Workspace; containers: XcodeContainer[]; metadata?: XcodeMetadata };
+export type BuildResult = { workspace: Workspace; succeeded: boolean; log: string; diagnostic?: string };
+export type DevSyncDevice = { id: string; name: string; model?: string; osVersion?: string; connectionState: string; connectionType?: string; lastSeen: string };
+export type DeviceSelection = { schemaVersion: number; selectedDeviceId?: string; selectedDeviceName?: string; updatedAt?: string };
+export type DeploymentState = "idle" | "preparing" | "preBuilding" | "preBuildSucceeded" | "building" | "buildFailed" | "buildSucceeded" | "signing" | "waitingForDevice" | "installing" | "installFailed" | "installed";
+export type DeploymentResult = { workspace: Workspace; state: DeploymentState; buildLog: string; installLog?: string; diagnostic?: string };
+export type DeploymentUpdate = { workspaceId: string; state: DeploymentState; message: string };
+export type BuildCacheUsage = { bytes: number };
+export type BackgroundServiceStatus = { enabled: boolean; running: boolean; pid?: number; agentPath?: string; lastError?: string; state: string };
