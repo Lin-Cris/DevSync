@@ -13,10 +13,11 @@
     "windows": [
       {
         "title": "DevSync",
-        "width": 800,
-        "height": 600,
-        "minHeight": 300,
-        "minWidth": 400
+        "width": 1388,
+        "height": 832,
+        "minHeight": 620,
+        "minWidth": 980,
+        "decorations": false
       }
     ],
     "security": {

@@ -1,52 +1,213 @@
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { FiCheckCircle, FiChevronDown, FiClock, FiGrid, FiHelpCircle, FiInfo, FiLayers, FiLoader, FiPlus, FiRefreshCw, FiSettings, FiSmartphone, FiWifi } from "react-icons/fi";
+import {
+  FiActivity, FiAlertCircle, FiBox, FiCheck, FiCheckCircle, FiChevronDown, FiCircle, FiClock,
+  FiCode, FiFolder, FiLoader, FiMinus, FiPlus, FiRefreshCw, FiShield, FiSliders,
+  FiSmartphone, FiTool, FiWifi, FiX,
+} from "react-icons/fi";
 import { toast } from "sonner";
 import { devsyncApi } from "../api";
-import type { BackgroundServiceStatus, DeploymentState, DeploymentUpdate, DeviceSelection, DevSyncDevice, Workspace, WorkspaceInspection } from "../types";
+import type { ActivityEntry, BackgroundServiceStatus, DeploymentState, DeploymentUpdate, DeviceSelection, DevSyncDevice, Workspace, WorkspaceInspection } from "../types";
 import "./WorkspaceDashboard.css";
 
-type Page = "apps" | "devices" | "settings" | "about";
+type Page = "project" | "devices" | "signing" | "settings";
 type Details = Record<string, WorkspaceInspection>;
-const fail = (e: unknown) => e && typeof e === "object" && "message" in e ? String(e.message) : String(e);
+type AuroraMode = "watching" | "building" | "signing" | "installing" | "waiting" | "ready" | "failed";
+const fail = (error: unknown) => error && typeof error === "object" && "message" in error ? String(error.message) : String(error);
 
 export const WorkspaceDashboard = () => {
-  const [page,setPage]=useState<Page>("apps"),[workspaces,setWorkspaces]=useState<Workspace[]>([]),[details,setDetails]=useState<Details>({}),[devices,setDevices]=useState<DevSyncDevice[]>([]),[selection,setSelection]=useState<DeviceSelection>({schemaVersion:1}),[login,setLogin]=useState(false),[backgroundService,setBackgroundService]=useState<BackgroundServiceStatus>({enabled:false,running:false,state:"stopped"}),[loading,setLoading]=useState(true),[building,setBuilding]=useState<string|null>(null),[syncing,setSyncing]=useState<string|null>(null),[updates,setUpdates]=useState<Record<string,DeploymentUpdate>>({}),[cache,setCache]=useState<number>();
-  const deviceRefreshInFlight=useRef(false);
-  const inspect=useCallback((x:WorkspaceInspection)=>{setWorkspaces(a=>a.map(w=>w.id===x.workspace.id?x.workspace:w));setDetails(a=>({...a,[x.workspace.id]:x}));},[]);
-  const refreshDetails=useCallback(async(ws:Workspace[])=>{await Promise.all(ws.map(async w=>{const detail=await devsyncApi.refreshWorkspace(w.id).catch(()=>undefined);if(detail)inspect(detail)}));},[inspect]);
-  const reload=useCallback(async()=>{setLoading(true);try{const ws=await devsyncApi.listWorkspaces();setWorkspaces(ws);setLoading(false);devsyncApi.getBuildCacheUsage().then(x=>setCache(x.bytes)).catch(()=>{});void refreshDetails(ws);}catch(e){toast.error(`Unable to load apps: ${fail(e)}`);setLoading(false)}},[refreshDetails]);
-  const refreshDevices=useCallback(async(notifyOnError=true)=>{if(deviceRefreshInFlight.current)return;deviceRefreshInFlight.current=true;try{const [all,saved]=await Promise.all([devsyncApi.listDevices(),devsyncApi.getDeviceSelection()]);setDevices(all);setSelection(saved);if(!saved.selectedDeviceId&&all.length===1)setSelection(await devsyncApi.selectDevice(all[0]));}catch(e){setDevices([]);if(notifyOnError)toast.error(`Unable to load devices: ${fail(e)}`)}finally{deviceRefreshInFlight.current=false}},[]);
-  useEffect(()=>{reload();refreshDevices();devsyncApi.getLaunchAtLogin().then(setLogin).catch(()=>{});},[reload,refreshDevices]);
-  useEffect(()=>{const timer=window.setInterval(()=>{void refreshDevices(false)},15000);return()=>window.clearInterval(timer)},[refreshDevices]);
-  useEffect(()=>{let active=true;const refresh=()=>devsyncApi.getBackgroundServiceStatus().then(status=>{if(active)setBackgroundService(status)}).catch(()=>{});refresh();const timer=window.setInterval(refresh,5000);return()=>{active=false;window.clearInterval(timer)}},[]);
-  useEffect(()=>{let off:(()=>void)|undefined;listen<DeploymentUpdate>("devsync-deployment",e=>setUpdates(a=>({...a,[e.payload.workspaceId]:e.payload}))).then(x=>off=x);return()=>off?.()},[]);
-  useEffect(()=>{let off:(()=>void)|undefined;listen<string>("devsync-workspace-changed",reload).then(x=>off=x);return()=>off?.()},[reload]);
-  const add=async()=>{const folder=await open({directory:true,multiple:false,title:"Add App"});if(!folder||Array.isArray(folder))return;try{inspect(await devsyncApi.addWorkspace(folder))}catch(e){toast.error(`Unable to add app: ${fail(e)}`)}};
-  const choose=async(id:string)=>{const d=devices.find(x=>x.id===id);if(d)setSelection(await devsyncApi.selectDevice(d));};
-  const sync=async(w:Workspace)=>{setSyncing(w.id);setUpdates(a=>({...a,[w.id]:{workspaceId:w.id,state:"preparing",message:"Preparing sync"}}));try{const r=await devsyncApi.deployWorkspace(w.id);inspect({workspace:r.workspace,containers:details[w.id]?.containers??[],metadata:details[w.id]?.metadata});r.state==="installed"?toast.success("Sync complete"):toast.error(r.diagnostic??stateLabel(r.state));}catch(e){toast.error(`Sync failed: ${fail(e)}`)}finally{setSyncing(null)}};
-  const build=async(w:Workspace)=>{setBuilding(w.id);try{const r=await devsyncApi.buildWorkspace(w.id);inspect({workspace:r.workspace,containers:details[w.id]?.containers??[],metadata:details[w.id]?.metadata});r.succeeded?toast.success("Build succeeded"):toast.error(r.diagnostic??"Build failed");}catch(e){toast.error(`Build failed: ${fail(e)}`)}finally{setBuilding(null)}};
-  const remove=async(w:Workspace)=>{if(!confirm(`Remove ${w.displayName} from DevSync? The project will not be deleted.`))return;try{await devsyncApi.removeWorkspace(w.id);setWorkspaces(a=>a.filter(x=>x.id!==w.id));}catch(e){toast.error(`Unable to remove app: ${fail(e)}`)}};
-  const setBackground=async(enabled:boolean)=>{setBackgroundService(a=>({...a,state:"starting"}));try{setBackgroundService(enabled?await devsyncApi.enableBackgroundService():await devsyncApi.disableBackgroundService())}catch(e){toast.error(`Unable to ${enabled?"enable":"disable"} Background Service: ${fail(e)}`);devsyncApi.getBackgroundServiceStatus().then(setBackgroundService).catch(()=>setBackgroundService({enabled:false,running:false,state:"error",lastError:fail(e)}))}};
-  const device=devices.find(x=>x.id===selection.selectedDeviceId&&isConnected(x));
-  const connectedCount=devices.filter(isConnected).length;
-  return <div className="window"><aside className="sidebar"><div className="brand"><Mark/><b>DevSync</b></div><nav><Nav active={page==="apps"} icon={<FiGrid/>} text="Apps" go={()=>setPage("apps")}/><Nav active={page==="devices"} icon={<FiSmartphone/>} text="Devices" go={()=>setPage("devices")}/><Nav active={page==="settings"} icon={<FiSettings/>} text="Settings" go={()=>setPage("settings")}/></nav><div className="side-bottom"><Nav active={page==="about"} icon={<FiInfo/>} text="About" go={()=>setPage("about")}/><span><FiHelpCircle/> Help &amp; Support</span></div></aside><main className="content">{page==="apps"&&<Apps ws={workspaces} details={details} device={device} selection={selection} devices={devices} loading={loading} building={building} syncing={syncing} updates={updates} add={add} reload={reload} choose={choose} sync={sync} build={build} remove={remove} inspect={inspect}/>} {page==="devices"&&<Devices devices={devices} selection={selection} choose={choose} refresh={refreshDevices}/>} {page==="settings"&&<Settings login={login} cache={cache} backgroundService={backgroundService} setBackground={setBackground} setLogin={async x=>{try{setLogin(await devsyncApi.setLaunchAtLogin(x))}catch(e){toast.error(`Unable to update setting: ${fail(e)}`)}}} clean={async()=>{if(!confirm("Clean DevSync-managed build cache? Your next sync will rebuild."))return;try{setCache((await devsyncApi.cleanBuildCache()).bytes);toast.success("Build cache cleaned")}catch(e){toast.error(`Unable to clean cache: ${fail(e)}`)}}}/>} {page==="about"&&<About/>}</main><footer><span><i className="dot green"/>DevSync is ready</span><span><FiWifi/> {connectedCount} connected {devices.length!==connectedCount?`(${devices.length-connectedCount} unavailable)`:""}</span><span><FiCheckCircle/> Signing renews automatically</span></footer></div>;
+  const [page, setPage] = useState<Page>("project");
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>();
+  const [details, setDetails] = useState<Details>({});
+  const [devices, setDevices] = useState<DevSyncDevice[]>([]);
+  const [selection, setSelection] = useState<DeviceSelection>({ schemaVersion: 1 });
+  const [login, setLogin] = useState(false);
+  const [backgroundService, setBackgroundService] = useState<BackgroundServiceStatus>({ enabled: false, running: false, state: "stopped" });
+  const [loading, setLoading] = useState(true);
+  const [building, setBuilding] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState<string | null>(null);
+  const [updates, setUpdates] = useState<Record<string, DeploymentUpdate>>({});
+  const [cache, setCache] = useState<number>();
+  const deviceRefreshInFlight = useRef(false);
+
+  const inspect = useCallback((inspection: WorkspaceInspection) => {
+    setWorkspaces((current) => current.some((item) => item.id === inspection.workspace.id) ? current.map((item) => item.id === inspection.workspace.id ? inspection.workspace : item) : [...current, inspection.workspace]);
+    setDetails((current) => ({ ...current, [inspection.workspace.id]: inspection }));
+    setSelectedWorkspaceId((current) => current ?? inspection.workspace.id);
+  }, []);
+
+  const refreshDetails = useCallback(async (items: Workspace[]) => {
+    await Promise.all(items.map(async (workspace) => {
+      const detail = await devsyncApi.refreshWorkspace(workspace.id).catch(() => undefined);
+      if (detail) inspect(detail);
+    }));
+  }, [inspect]);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const items = await devsyncApi.listWorkspaces();
+      setWorkspaces(items);
+      setSelectedWorkspaceId((current) => current && items.some((item) => item.id === current) ? current : items[0]?.id);
+      setLoading(false);
+      devsyncApi.getBuildCacheUsage().then((usage) => setCache(usage.bytes)).catch(() => undefined);
+      void refreshDetails(items);
+    } catch (error) {
+      toast.error(`Unable to load projects: ${fail(error)}`);
+      setLoading(false);
+    }
+  }, [refreshDetails]);
+
+  const refreshWorkspaces = useCallback(async () => {
+    const items = await devsyncApi.listWorkspaces().catch(() => undefined);
+    if (!items) return;
+    setWorkspaces(items);
+    setSelectedWorkspaceId((current) => current && items.some((item) => item.id === current) ? current : items[0]?.id);
+  }, []);
+
+  const refreshDevices = useCallback(async (notifyOnError = true) => {
+    if (deviceRefreshInFlight.current) return;
+    deviceRefreshInFlight.current = true;
+    try {
+      const [all, saved] = await Promise.all([devsyncApi.listDevices(), devsyncApi.getDeviceSelection()]);
+      setDevices(all); setSelection(saved);
+      if (!saved.selectedDeviceId && all.length === 1) setSelection(await devsyncApi.selectDevice(all[0]));
+    } catch (error) {
+      setDevices([]); if (notifyOnError) toast.error(`Unable to load devices: ${fail(error)}`);
+    } finally { deviceRefreshInFlight.current = false; }
+  }, []);
+
+  useEffect(() => { void reload(); void refreshDevices(); devsyncApi.getLaunchAtLogin().then(setLogin).catch(() => undefined); }, [refreshDevices, reload]);
+  useEffect(() => { const timer = window.setInterval(() => void refreshWorkspaces(), 2500); return () => window.clearInterval(timer); }, [refreshWorkspaces]);
+  useEffect(() => { const timer = window.setInterval(() => void refreshDevices(false), 15000); return () => window.clearInterval(timer); }, [refreshDevices]);
+  useEffect(() => {
+    let active = true;
+    const refresh = () => devsyncApi.getBackgroundServiceStatus().then((status) => { if (active) setBackgroundService(status); }).catch(() => undefined);
+    refresh(); const timer = window.setInterval(refresh, 5000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, []);
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    listen<DeploymentUpdate>("devsync-deployment", (event) => { setUpdates((current) => ({ ...current, [event.payload.workspaceId]: event.payload })); void refreshWorkspaces(); }).then((cleanup) => { off = cleanup; });
+    return () => off?.();
+  }, [refreshWorkspaces]);
+
+  const add = async () => {
+    const folder = await open({ directory: true, multiple: false, title: "Add Project" });
+    if (!folder || Array.isArray(folder)) return;
+    try { inspect(await devsyncApi.addWorkspace(folder)); setPage("project"); } catch (error) { toast.error(`Unable to add project: ${fail(error)}`); }
+  };
+  const chooseDevice = async (id: string) => { const device = devices.find((item) => item.id === id); if (device) setSelection(await devsyncApi.selectDevice(device)); };
+  const sync = async (workspace: Workspace) => {
+    setSelectedWorkspaceId(workspace.id); setPage("project"); setSyncing(workspace.id);
+    setUpdates((current) => ({ ...current, [workspace.id]: { workspaceId: workspace.id, state: "preparing", message: "Preparing sync" } }));
+    try {
+      const result = await devsyncApi.deployWorkspace(workspace.id);
+      inspect({ workspace: result.workspace, containers: details[workspace.id]?.containers ?? [], metadata: details[workspace.id]?.metadata });
+      result.state === "installed" ? toast.success("Sync complete") : toast.error(result.diagnostic ?? stateLabel(result.state));
+    } catch (error) { toast.error(`Sync failed: ${fail(error)}`); } finally { setSyncing(null); void refreshWorkspaces(); }
+  };
+  const build = async (workspace: Workspace) => {
+    setBuilding(workspace.id);
+    try {
+      const result = await devsyncApi.buildWorkspace(workspace.id);
+      inspect({ workspace: result.workspace, containers: details[workspace.id]?.containers ?? [], metadata: details[workspace.id]?.metadata });
+      result.succeeded ? toast.success("Build succeeded") : toast.error(result.diagnostic ?? "Build failed");
+    } catch (error) { toast.error(`Build failed: ${fail(error)}`); } finally { setBuilding(null); void refreshWorkspaces(); }
+  };
+  const remove = async (workspace: Workspace) => {
+    if (!confirm(`Remove ${workspace.displayName} from DevSync? The project will not be deleted.`)) return;
+    try { await devsyncApi.removeWorkspace(workspace.id); setWorkspaces((current) => current.filter((item) => item.id !== workspace.id)); setSelectedWorkspaceId((current) => current === workspace.id ? undefined : current); } catch (error) { toast.error(`Unable to remove project: ${fail(error)}`); }
+  };
+  const setBackground = async (enabled: boolean) => {
+    setBackgroundService((current) => ({ ...current, state: "starting" }));
+    try { setBackgroundService(enabled ? await devsyncApi.enableBackgroundService() : await devsyncApi.disableBackgroundService()); }
+    catch (error) { toast.error(`Unable to ${enabled ? "enable" : "disable"} Automatic signing: ${fail(error)}`); devsyncApi.getBackgroundServiceStatus().then(setBackgroundService).catch(() => undefined); }
+  };
+
+  const project = workspaces.find((item) => item.id === selectedWorkspaceId) ?? workspaces[0];
+  const device = devices.find((item) => item.id === selection.selectedDeviceId && isConnected(item));
+  const connectedCount = devices.filter(isConnected).length;
+  return <div className="aurora-window">
+    <div className="window-chrome" data-tauri-drag-region><div className="traffic-lights">
+      <button className="traffic close" aria-label="Close window" onClick={() => void getCurrentWindow().close()}><FiX /></button>
+      <button className="traffic minimize" aria-label="Minimize window" onClick={() => void getCurrentWindow().minimize()}><FiMinus /></button>
+      <button className="traffic maximize" aria-label="Maximize window" onClick={() => void getCurrentWindow().toggleMaximize()}><FiPlus /></button>
+    </div></div>
+    <aside className="aurora-sidebar">
+      <div className="aurora-brand"><div><b>DevSync</b><span>Code changes.<br />On your device.</span></div></div>
+      <nav className="aurora-nav">
+        <Nav active={page === "project"} icon={<FiFolder />} text="Project" go={() => setPage("project")} />
+        <Nav active={page === "devices"} icon={<FiSmartphone />} text="Devices" go={() => setPage("devices")} />
+        <Nav active={page === "signing"} icon={<FiShield />} text="Signing" go={() => setPage("signing")} />
+        <Nav active={page === "settings"} icon={<FiSliders />} text="Settings" go={() => setPage("settings")} />
+      </nav>
+      <div className="sidebar-caption"><span>Build. Sign. Install.</span><span>Automatically.</span></div>
+    </aside>
+    <main className="aurora-content">
+      {page === "project" && <ProjectView project={project} projects={workspaces} inspection={project ? details[project.id] : undefined} device={device} selection={selection} devices={devices} loading={loading} building={building === project?.id} syncing={syncing === project?.id} update={project ? updates[project.id] : undefined} backgroundService={backgroundService} add={add} selectProject={setSelectedWorkspaceId} chooseDevice={chooseDevice} setBackground={setBackground} sync={sync} build={build} remove={remove} inspect={inspect} refresh={reload} />}
+      {page === "devices" && <Devices devices={devices} selection={selection} choose={chooseDevice} refresh={refreshDevices} />}
+      {page === "signing" && <Signing projects={workspaces} backgroundService={backgroundService} setBackground={setBackground} />}
+      {page === "settings" && <Settings login={login} cache={cache} backgroundService={backgroundService} setBackground={setBackground} setLogin={async (enabled) => { try { setLogin(await devsyncApi.setLaunchAtLogin(enabled)); } catch (error) { toast.error(`Unable to update setting: ${fail(error)}`); } }} clean={async () => { if (!confirm("Clean DevSync-managed build cache? Your next sync will rebuild.")) return; try { setCache((await devsyncApi.cleanBuildCache()).bytes); toast.success("Build cache cleaned"); } catch (error) { toast.error(`Unable to clean cache: ${fail(error)}`); } }} />}
+    </main>
+    <footer className="aurora-footer"><span><i className="status-dot green" />{project ? footerStatus(project, device) : "Add a project to begin"}</span><span><FiWifi /> {connectedCount} connected</span><span><FiCheckCircle /> Signing renews automatically</span></footer>
+  </div>;
 };
-const Mark=()=> <div className="mark"><FiLayers/></div>;
-const Nav=({active,icon,text,go}:{active:boolean;icon:ReactNode;text:string;go:()=>void})=><button className={active?"active":""} onClick={go}>{icon}<span>{text}</span></button>;
-const Apps=({ws,details,device,selection,devices,loading,building,syncing,updates,add,reload,choose,sync,build,remove,inspect}:{ws:Workspace[];details:Details;device?:DevSyncDevice;selection:DeviceSelection;devices:DevSyncDevice[];loading:boolean;building:string|null;syncing:string|null;updates:Record<string,DeploymentUpdate>;add:()=>void;reload:()=>void;choose:(x:string)=>void;sync:(w:Workspace)=>void;build:(w:Workspace)=>void;remove:(w:Workspace)=>void;inspect:(x:WorkspaceInspection)=>void})=>{const selected=devices.find(d=>d.id===selection.selectedDeviceId);const checking=!device&&selected?.connectionState.trim().toLowerCase()==="unknown";return <><header><div><h1>DevSync</h1><p>Build and sync your Xcode apps to iPhone over Wi-Fi.</p></div><small>Simple. Fast. On your device.</small></header><section className="device-card"><div className="phone"><FiSmartphone/></div><div><h2>{device?.name??selection.selectedDeviceName??"No iPhone selected"}</h2><p className={device?"online":"muted"}><i className={`dot ${device?"green":"gray"}`}/>{device?connection(device):checking?"Checking device…":selection.selectedDeviceId?"Currently unavailable":"Choose a paired iPhone to sync"}</p>{device?.osVersion&&<em>iOS {device.osVersion}</em>}</div><label className="device-select"><FiWifi/><select value={selection.selectedDeviceId??""} onChange={e=>choose(e.target.value)}><option value="">Select iPhone…</option>{devices.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></label></section><section className="apps"><div className="section-head"><h2>My Apps <b>{ws.length}</b></h2><button className="add" onClick={add}><FiPlus/> Add App</button></div>{loading?<div className="empty">Loading your apps…</div>:ws.length?<div className="cards">{ws.map(w=><Card key={w.id} w={w} inspection={details[w.id]} building={building===w.id} syncing={syncing===w.id} update={updates[w.id]} sync={sync} build={build} remove={remove} inspect={inspect}/>)}</div>:<div className="empty"><FiLayers/><h2>Add your first app</h2><p>Choose the folder for an existing Xcode project or workspace.</p><button className="primary" onClick={add}>Add App</button></div>}<button className="quiet" disabled={loading} onClick={reload}><FiRefreshCw/> Refresh apps</button></section></>};
-const Card=({w,inspection,building,syncing,update,sync,build,remove,inspect}:{w:Workspace;inspection?:WorkspaceInspection;building:boolean;syncing:boolean;update?:DeploymentUpdate;sync:(w:Workspace)=>void;build:(w:Workspace)=>void;remove:(w:Workspace)=>void;inspect:(x:WorkspaceInspection)=>void})=>{const status=appStatus(w,update?.state);const containers=inspection?.containers??[];const schemes=inspection?.metadata?.schemes??[];const valid=!w.unavailable&&!w.metadataError&&!!(w.xcodeContainerPath&&w.selectedScheme);const refresh=async()=>{try{inspect(await devsyncApi.refreshWorkspace(w.id))}catch(e){toast.error(`Metadata refresh failed: ${fail(e)}`)}};const saveContainer=async(path:string)=>{const container=containers.find(candidate=>candidate.path===path);if(!container)return;try{inspect(await devsyncApi.selectContainer(w.id,container));toast.success(`Project selected: ${container.path.split("/").pop()??container.path}`)}catch(e){toast.error(`Unable to select project: ${fail(e)}`)}};const saveScheme=async(scheme:string)=>{if(!scheme)return;try{inspect(await devsyncApi.selectScheme(w.id,scheme));toast.success(`Scheme selected: ${scheme}`)}catch(e){toast.error(`Unable to select Scheme: ${fail(e)}`)}};const savePreBuild=async(command:string)=>{try{const saved=await devsyncApi.setPreBuildCommand(w.id,command);inspect({workspace:saved,containers:inspection?.containers??[],metadata:inspection?.metadata});toast.success(command.trim()?"Pre-Build command saved":"Pre-Build command cleared")}catch(e){toast.error(`Unable to save Pre-Build command: ${fail(e)}`)}};return <article className="card"><div className="identity"><div className="app-icon">{(w.productName??w.displayName)[0].toUpperCase()}</div><div><h3>{w.productName??w.displayName}</h3><p>{w.bundleIdentifier??"Bundle identifier unavailable"}</p><strong className={status.color}><i className="dot"/>{status.text}</strong></div></div><div className="meta"><Info icon={<FiClock/>} name="Last sync" value={ago(w.lastInstallAt)}/><Info icon={<FiCheckCircle/>} name="Signing" value={signing(w)}/></div><div className="actions"><label className="switch"><span>Auto Sync</span><input type="checkbox" checked={w.autoSync} onChange={async e=>{try{const saved=await devsyncApi.setAutoSync(w.id,e.target.checked);inspect({workspace:saved,containers:inspection?.containers??[],metadata:inspection?.metadata})}catch(x){toast.error(`Unable to update Auto Sync: ${fail(x)}`)}}}/><i/></label><button className="primary" disabled={!valid||building||syncing} onClick={()=>sync(w)}>{syncing?<><FiLoader className="spin"/> {update?.message??"Syncing…"}</>:"Sync Now"}</button><details><summary>Details <FiChevronDown/></summary><div className="details"><p><b>Project</b>{w.folderPath}</p><label className="pre-build"><b>Project Container</b><select aria-label="Project Container" value={w.xcodeContainerPath??""} onChange={e=>saveContainer(e.currentTarget.value)} disabled={!containers.length}><option value="">{containers.length?"Select Xcode project…":"No projects detected"}</option>{containers.map(container=><option key={`${container.containerType}:${container.path}`} value={container.path}>{container.path.split("/").pop()??container.path} ({container.containerType})</option>)}</select></label><label className="pre-build"><b>Scheme</b><select aria-label="Scheme" value={w.selectedScheme??""} onChange={e=>saveScheme(e.currentTarget.value)} disabled={!schemes.length}><option value="">{schemes.length?"Select Scheme…":"No schemes detected"}</option>{schemes.map(scheme=><option key={scheme} value={scheme}>{scheme}</option>)}</select></label><label className="pre-build"><b>Pre-Build Command</b><input aria-label="Pre-Build Command" defaultValue={w.preBuildCommand??""} placeholder="Optional, e.g. npm run ios:bundle" onBlur={e=>savePreBuild(e.currentTarget.value)}/><small>Runs in this project folder before Xcode Build.</small></label><p><b>Signing Team</b>{w.signingTeam??"Unavailable"}</p>{w.lastArtifactFingerprintPath&&<p><b>Artifact report</b>{w.lastArtifactFingerprintPath}</p>}{w.metadataError&&<p className="error">{w.metadataError}</p>}<div><button onClick={()=>build(w)} disabled={!valid||building||syncing}>{building?"Building…":"Build Only"}</button><button onClick={refresh}>Refresh Metadata</button><button className="remove" onClick={()=>remove(w)}>Remove App</button></div></div></details></div></article>};
-const Info=({icon,name,value}:{icon:ReactNode;name:string;value:string})=><div className="info">{icon}<div><span>{name}</span><p>{value}</p></div></div>;
-const Devices=({devices,selection,choose,refresh}:{devices:DevSyncDevice[];selection:DeviceSelection;choose:(x:string)=>void;refresh:()=>void})=><><header><div><h1>Devices</h1><p>Choose the iPhone DevSync uses for deployment.</p></div><button className="secondary" onClick={refresh}><FiRefreshCw/> Refresh</button></header><section className="settings device-list">{devices.length?devices.map(d=><button className={d.id===selection.selectedDeviceId?"selected":""} key={d.id} onClick={()=>choose(d.id)}><div className="phone small"><FiSmartphone/></div><div><b>{d.name}</b><p><i className={`dot ${isConnected(d)?"green":"gray"}`}/>{connection(d)}{d.osVersion?` · iOS ${d.osVersion}`:""}</p></div>{d.id===selection.selectedDeviceId&&<span>Selected for deployment</span>}</button>):<div className="empty"><FiSmartphone/><h2>No iPhone available</h2><p>Pair your iPhone with this Mac, then refresh to see it here.</p></div>}</section></>;
-const Settings=({login,cache,backgroundService,setBackground,setLogin,clean}:{login:boolean;cache?:number;backgroundService:BackgroundServiceStatus;setBackground:(x:boolean)=>void;setLogin:(x:boolean)=>void;clean:()=>void})=>{const signingActive=backgroundService.enabled&&backgroundService.running;return <><header><div><h1>Settings</h1><p>Keep DevSync quietly ready when you need it.</p></div></header><Group title="General"><Row title="Launch DevSync at Login" text="Keep DevSync ready in the background."><label className="switch"><input type="checkbox" checked={login} onChange={e=>setLogin(e.target.checked)}/><i/></label></Row><Row title="Background Service" text="Run Auto Sync and signing renewal without the DevSync window."><span className={backgroundService.state==="error"?"error":""}>{backgroundLabel(backgroundService)}</span><label className="switch"><input type="checkbox" checked={backgroundService.enabled} disabled={backgroundService.state==="starting"} onChange={e=>setBackground(e.target.checked)}/><i/></label></Row><Row title="Background Signing Renewal" text="Signing is renewed automatically before it expires."><b className={signingActive?"good":""}>{signingActive?"On":backgroundService.enabled?"Starting…":"Off"}</b></Row></Group><Group title="Build"><Row title="Build Cache" text={cache===undefined?"Calculating…":bytes(cache)}><button className="secondary" disabled={!cache} onClick={clean}>Clean</button></Row></Group><Group title="Advanced"><Row title="Signing renewal threshold" text="DevSync checks signing automatically."><span>24 hours</span></Row></Group></>};
-const Group=({title,children}:{title:string;children:ReactNode})=><section className="group"><h2>{title}</h2><div className="settings">{children}</div></section>;
-const Row=({title,text,children}:{title:string;text:string;children:ReactNode})=><div className="row"><div><b>{title}</b><p>{text}</p></div>{children}</div>;
-const About=()=> <><header><div><h1>About DevSync</h1><p>Sync your local Xcode apps to your iPhone over Wi-Fi.</p></div></header><div className="about"><Mark/><h2>DevSync</h2><p>Version 0.1.0</p><span>Simple, local app deployment for your own devices.</span></div></>;
-const connection=(d:DevSyncDevice)=>d.connectionState.trim().toLowerCase()==="unknown"?"Checking device…":`${d.connectionState}${d.connectionType?` over ${d.connectionType}`:""}`;
-const isConnected=(d:DevSyncDevice)=>["connected","available","online"].includes(d.connectionState.trim().toLowerCase());
-const signing=(w:Workspace)=>{const s=w.signingStatus;if(s?.remainingSeconds===undefined)return s?.status==="unknown"?"Unavailable":"Not built yet";const h=Math.max(0,Math.floor(s.remainingSeconds/3600));if(s.status==="expired")return"Expired";if(s.status==="expiringSoon")return h<24?"Expires today":"Expires soon";return`${Math.floor(h/24)}d ${h%24}h remaining`};
-const ago=(v?:string)=>{if(!v)return"Not yet synced";const n=Date.now()-new Date(v).getTime();if(n<60000)return"Just now";if(n<3600000)return`${Math.floor(n/60000)} min ago`;if(n<86400000)return`${Math.floor(n/3600000)}h ago`;return new Date(v).toLocaleDateString(undefined,{month:"short",day:"numeric"})};
-const appStatus=(w:Workspace,s?:DeploymentState)=>{if(s)return{text:stateLabel(s),color:s==="buildFailed"||s==="installFailed"?"red":s==="waitingForDevice"?"gray":"blue"};if(w.backgroundState==="waitingForDevice")return{text:"Waiting for iPhone",color:"gray"};if(w.changesDetected)return{text:"Changes detected",color:"orange"};if(w.signingStatus?.status==="expired"||w.lastInstallStatus==="failed"||w.metadataError)return{text:w.signingStatus?.status==="expired"?"Signing expired":"Needs attention",color:"red"};if(w.signingStatus?.status==="expiringSoon")return{text:"Signing expires soon",color:"orange"};return{text:w.lastInstallStatus==="installed"?"Synced":"Ready to sync",color:w.lastInstallStatus==="installed"?"green":"blue"}};
-const stateLabel=(s:DeploymentState)=>({idle:"Ready to sync",preparing:"Preparing",preBuilding:"Pre-Build",preBuildSucceeded:"Pre-Build ✓",building:"Xcode Build",buildFailed:"Build failed",buildSucceeded:"Xcode Build ✓",signing:"Signing ✓",waitingForDevice:"Waiting for iPhone",installing:"Installing",installFailed:"Install failed",installed:"Completed"})[s];const bytes=(n:number)=>n<1048576?`${Math.ceil(n/1024)} KB`:`${(n/1048576).toFixed(1)} MB`;
-const backgroundLabel=(status:BackgroundServiceStatus)=>status.state==="running"?"Running":status.state==="starting"?"Starting…":status.state==="error"?"Unavailable":"Stopped";
+
+const Nav = ({ active, icon, text, go }: { active: boolean; icon: ReactNode; text: string; go: () => void }) => <button className={active ? "active" : ""} onClick={go}>{icon}<span>{text}</span></button>;
+
+const ProjectView = ({ project, projects, inspection, device, selection, devices, loading, building, syncing, update, backgroundService, add, selectProject, chooseDevice, setBackground, sync, build, remove, inspect, refresh }: { project?: Workspace; projects: Workspace[]; inspection?: WorkspaceInspection; device?: DevSyncDevice; selection: DeviceSelection; devices: DevSyncDevice[]; loading: boolean; building: boolean; syncing: boolean; update?: DeploymentUpdate; backgroundService: BackgroundServiceStatus; add: () => void; selectProject: (id: string) => void; chooseDevice: (id: string) => void; setBackground: (enabled: boolean) => void; sync: (workspace: Workspace) => void; build: (workspace: Workspace) => void; remove: (workspace: Workspace) => void; inspect: (inspection: WorkspaceInspection) => void; refresh: () => void }) => {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const state = project ? deriveState(project, update, building, syncing, device) : emptyState();
+  const signingStatus = project ? signingSummary(project) : { label: "No profile inspected", tone: "muted", detail: "Build a project to inspect signing." };
+  if (loading && !project) return <div className="empty-state"><FiLoader className="spin" /><p>Loading DevSync…</p></div>;
+  if (!project) return <div className="empty-state"><FiFolder /><h2>Add your first project</h2><p>Choose an existing Xcode project or workspace to begin.</p><button className="aurora-button" onClick={add}><FiPlus /> Add Project</button></div>;
+  return <><header className="project-header"><div><span className="eyebrow">PROJECT</span><div className="project-picker"><select value={project.id} aria-label="Current project" onChange={(event) => selectProject(event.target.value)}>{projects.map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select><FiChevronDown /></div><p className="project-path">{compactPath(project.folderPath)}</p></div><div className="watching-label"><span className={`watch-ring ${state.mode === "watching" ? "active" : ""}`} />{state.header}</div></header>
+    <div className="project-grid"><section className="state-column"><div className={`aurora-field mode-${state.mode}`}><div className="aurora-orb"><div className="orb-core" /><div className="orb-shine" /></div><div className="state-copy"><h1>{state.title}</h1><p>{state.description}</p></div></div><StepProgress mode={state.mode} /><div className="project-actions"><button className="ghost-button" onClick={() => setDetailsOpen((open) => !open)}><FiTool /> Project details</button><button className="aurora-button" disabled={!isSyncReady(project) || building || syncing} onClick={() => sync(project)}>{syncing ? <FiLoader className="spin" /> : <FiActivity />} {syncing ? "Syncing…" : "Sync Now"}</button></div>{detailsOpen && <ProjectDetails workspace={project} inspection={inspection} building={building} syncing={syncing} inspect={inspect} build={build} remove={remove} refresh={refresh} />}</section><aside className="right-rail"><DeviceCard device={device} selected={selection.selectedDeviceId} devices={devices} choose={chooseDevice} /><SigningCard status={signingStatus} enabled={backgroundService.enabled} setBackground={setBackground} /><ActivityCard workspace={project} /><p className="rail-note">A faster path from idea to device.</p></aside></div></>;
+};
+
+const StepProgress = ({ mode }: { mode: AuroraMode }) => { const steps = [{ label: "Watch", sub: mode === "watching" ? "Active" : "Completed" }, { label: "Build", sub: mode === "building" ? "In progress" : mode === "watching" || mode === "failed" ? "Pending" : "Completed" }, { label: "Sign", sub: mode === "signing" ? "In progress" : ["installing", "ready"].includes(mode) ? "Completed" : "Pending" }, { label: "Install", sub: mode === "installing" ? "In progress" : mode === "ready" ? "Completed" : "Pending" }]; const current = mode === "building" ? 1 : mode === "signing" ? 2 : mode === "installing" ? 3 : mode === "ready" ? 4 : 0; return <div className="step-progress">{steps.map((step, index) => <div className="step-wrap" key={step.label}><div className={`step-line ${index < current ? "complete" : ""}`} /><div className={`step ${index < current ? "complete" : index === current ? "current" : "pending"}`}>{index < current ? <FiCheck /> : index === current ? <span /> : <FiCircle />}</div><b>{index + 1} {step.label}</b><small>{step.sub}</small></div>)}</div>; };
+
+const DeviceCard = ({ device, selected, devices, choose }: { device?: DevSyncDevice; selected?: string; devices: DevSyncDevice[]; choose: (id: string) => void }) => <section className="glass-card device-card-dark"><div className="card-heading"><span className="eyebrow">TARGET DEVICE</span><FiChevronDown /></div><div className="device-card-content"><div><label className="device-picker"><select value={selected ?? ""} aria-label="Target device" onChange={(event) => choose(event.target.value)}><option value="">Select iPhone…</option>{devices.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><FiChevronDown /></label><p className="device-model">{device?.model ?? "Pair an iPhone with this Mac"}{device?.osVersion ? ` · iOS ${device.osVersion}` : ""}</p><p className={device ? "device-connected" : "device-unavailable"}><span className={`status-dot ${device ? "green" : "muted"}`} />{device ? connection(device) : selected ? "Currently unavailable" : "No device selected"}</p></div><DevicePreview model={device?.model} /></div></section>;
+const DevicePreview = ({ model }: { model?: string }) => <div className={`device-preview ${model?.toLowerCase().includes("ipad") ? "tablet" : ""}`}><div className="device-screen"><FiSmartphone /></div></div>;
+const SigningCard = ({ status, enabled, setBackground }: { status: { label: string; tone: string; detail: string }; enabled: boolean; setBackground: (enabled: boolean) => void }) => <section className="glass-card signing-card-dark"><div className="signing-title"><div><h2>Automatic signing</h2><p>Manage profiles and background sync automatically.</p></div><Toggle checked={enabled} onChange={setBackground} /></div><div className={`signing-status ${status.tone}`}><FiCheckCircle /><div><b>{status.label}</b><span>{status.detail}</span></div></div></section>;
+
+const ActivityCard = ({ workspace }: { workspace: Workspace }) => { const [clearing, setClearing] = useState(false); const activities = [...(workspace.activities ?? [])].reverse().slice(0, 4); const clear = async () => { setClearing(true); try { await devsyncApi.clearActivity(workspace.id); toast.success("Activity cleared"); } catch (error) { toast.error(`Unable to clear activity: ${fail(error)}`); } finally { setClearing(false); } }; return <section className="glass-card activity-card"><div className="card-heading"><span className="eyebrow">ACTIVITY</span><button onClick={clear} disabled={clearing || activities.length === 0}>Clear</button></div>{activities.length ? <div className="activity-list">{activities.map((activity) => <ActivityRow key={activity.id} activity={activity} />)}</div> : <div className="activity-empty"><FiClock /><span>No activity yet</span></div>}</section>; };
+const ActivityRow = ({ activity }: { activity: ActivityEntry }) => <div className="activity-row"><span className={`activity-icon ${activity.kind}`}>{activity.kind === "error" ? <FiAlertCircle /> : activity.kind === "build" ? <FiBox /> : activity.kind === "signing" ? <FiShield /> : activity.kind === "install" ? <FiSmartphone /> : <FiCheckCircle />}</span><span>{activity.message}</span><time>{formatTime(activity.timestamp)}</time></div>;
+
+const ProjectDetails = ({ workspace, inspection, building, syncing, inspect, build, remove, refresh }: { workspace: Workspace; inspection?: WorkspaceInspection; building: boolean; syncing: boolean; inspect: (inspection: WorkspaceInspection) => void; build: (workspace: Workspace) => void; remove: (workspace: Workspace) => void; refresh: () => void }) => { const containers = inspection?.containers ?? []; const schemes = inspection?.metadata?.schemes ?? []; const saveContainer = async (path: string) => { const container = containers.find((candidate) => candidate.path === path); if (container) inspect(await devsyncApi.selectContainer(workspace.id, container)); }; const saveScheme = async (scheme: string) => { if (scheme) inspect(await devsyncApi.selectScheme(workspace.id, scheme)); }; const savePreBuild = async (command: string) => { const saved = await devsyncApi.setPreBuildCommand(workspace.id, command); inspect({ workspace: saved, containers, metadata: inspection?.metadata }); }; return <div className="project-details"><div className="detail-grid"><label>Project container<select value={workspace.xcodeContainerPath ?? ""} onChange={(event) => void saveContainer(event.target.value)} disabled={!containers.length}><option value="">{containers.length ? "Select Xcode project…" : "No project detected"}</option>{containers.map((container) => <option key={container.path} value={container.path}>{container.path.split("/").pop()} ({container.containerType})</option>)}</select></label><label>Scheme<select value={workspace.selectedScheme ?? ""} onChange={(event) => void saveScheme(event.target.value)} disabled={!schemes.length}><option value="">{schemes.length ? "Select scheme…" : "No scheme detected"}</option>{schemes.map((scheme) => <option key={scheme} value={scheme}>{scheme}</option>)}</select></label><label className="wide">Pre-Build command<input defaultValue={workspace.preBuildCommand ?? ""} placeholder="Optional, e.g. npm run ios:bundle" onBlur={(event) => void savePreBuild(event.currentTarget.value)} /></label></div><div className="detail-actions"><button className="ghost-button" onClick={refresh}><FiRefreshCw /> Refresh metadata</button><button className="ghost-button" disabled={!isSyncReady(workspace) || building || syncing} onClick={() => build(workspace)}>{building ? <FiLoader className="spin" /> : <FiCode />} Build only</button><button className="danger-button" onClick={() => remove(workspace)}>Remove project</button></div></div>; };
+
+const Devices = ({ devices, selection, choose, refresh }: { devices: DevSyncDevice[]; selection: DeviceSelection; choose: (id: string) => void; refresh: () => void }) => <PageFrame title="Devices" subtitle="Choose the iPhone DevSync uses for deployment." action={<button className="ghost-button" onClick={() => void refresh()}><FiRefreshCw /> Refresh</button>}><section className="page-card device-list-dark">{devices.length ? devices.map((device) => <button className={device.id === selection.selectedDeviceId ? "selected" : ""} key={device.id} onClick={() => void choose(device.id)}><DevicePreview model={device.model} /><span><b>{device.name}</b><small>{device.model ?? "iPhone"} · {connection(device)}</small></span>{device.id === selection.selectedDeviceId && <em>Selected</em>}</button>) : <div className="empty-state"><FiSmartphone /><h2>No iPhone available</h2><p>Pair your iPhone with this Mac, then refresh.</p></div>}</section></PageFrame>;
+const Signing = ({ projects, backgroundService, setBackground }: { projects: Workspace[]; backgroundService: BackgroundServiceStatus; setBackground: (enabled: boolean) => void }) => <PageFrame title="Signing" subtitle="DevSync uses the signing already configured in Xcode."><section className="page-card signing-list-dark"><div className="settings-row-dark"><div><b>Automatic signing renewal</b><p>Refresh development profiles before they expire.</p></div><Toggle checked={backgroundService.enabled} onChange={setBackground} /></div>{projects.map((workspace) => { const status = signingSummary(workspace); return <div className="settings-row-dark" key={workspace.id}><div><b>{workspace.productName ?? workspace.displayName}</b><p>{workspace.signingTeam ?? "Team unavailable"}</p></div><span className={`inline-status ${status.tone}`}>{status.label}</span></div>; })}</section></PageFrame>;
+const Settings = ({ login, cache, backgroundService, setBackground, setLogin, clean }: { login: boolean; cache?: number; backgroundService: BackgroundServiceStatus; setBackground: (enabled: boolean) => void; setLogin: (enabled: boolean) => void; clean: () => void }) => <PageFrame title="Settings" subtitle="Keep DevSync quietly ready when you need it."><section className="settings-groups-dark"><Group title="General"><SettingRow title="Launch DevSync at Login" text="Keep DevSync ready in the background."><Toggle checked={login} onChange={setLogin} /></SettingRow><SettingRow title="Background Service" text="Run Auto Sync and signing renewal without the window."><Toggle checked={backgroundService.enabled} onChange={setBackground} /></SettingRow></Group><Group title="Build"><SettingRow title="Build Cache" text={cache === undefined ? "Calculating…" : bytes(cache)}><button className="ghost-button" disabled={!cache} onClick={clean}>Clean</button></SettingRow></Group><Group title="Advanced"><SettingRow title="Signing renewal threshold" text="DevSync checks signing automatically."><span className="setting-value">24 hours</span></SettingRow></Group></section></PageFrame>;
+const PageFrame = ({ title, subtitle, action, children }: { title: string; subtitle: string; action?: ReactNode; children: ReactNode }) => <><header className="subpage-header"><div><span className="eyebrow">DEVSYNC</span><h1>{title}</h1><p>{subtitle}</p></div>{action}</header>{children}</>;
+const Group = ({ title, children }: { title: string; children: ReactNode }) => <section className="settings-group"><span className="eyebrow">{title}</span><div>{children}</div></section>;
+const SettingRow = ({ title, text, children }: { title: string; text: string; children: ReactNode }) => <div className="settings-row-dark"><div><b>{title}</b><p>{text}</p></div>{children}</div>;
+const Toggle = ({ checked, onChange }: { checked: boolean; onChange: (value: boolean) => void }) => <label className="toggle"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /><i /></label>;
+
+function deriveState(workspace: Workspace, update: DeploymentUpdate | undefined, building: boolean, syncing: boolean, device: DevSyncDevice | undefined): { mode: AuroraMode; title: string; description: string; header: string } {
+  const state = update?.state ?? workspace.deploymentState; const target = device?.name ?? "your iPhone";
+  if (state === "buildFailed" || state === "installFailed" || workspace.metadataError || workspace.signingStatus?.status === "expired") return { mode: "failed", title: "Needs attention", description: workspace.metadataError ?? workspace.deploymentMessage ?? "Review the project before syncing.", header: "Attention needed" };
+  if (state === "waitingForDevice") return { mode: "waiting", title: "Waiting", description: `Connect ${target} to continue…`, header: "Waiting for iPhone…" };
+  if (state === "installing") return { mode: "installing", title: "Installing", description: `Installing the latest build on ${target}…`, header: "Installing on iPhone…" };
+  if (state === "signing") return { mode: "signing", title: "Signing", description: `Preparing a signed build for ${target}…`, header: "Signing build…" };
+  if (state === "building" || state === "preBuilding" || state === "preBuildSucceeded" || building) return { mode: "building", title: "Building", description: "Compiling the latest project changes…", header: "Building project…" };
+  if (state === "preparing" || syncing) return { mode: "watching", title: "Preparing", description: "Getting the project ready to sync…", header: "Preparing sync…" };
+  if (state === "installed" && !workspace.changesDetected) return { mode: "ready", title: "Ready", description: `The latest build is on ${target}.`, header: "Watching for changes…" };
+  if (workspace.changesDetected) return { mode: "watching", title: "Watching", description: "Changes detected. Ready to build and install.", header: "Changes detected…" };
+  return { mode: "watching", title: "Watching", description: "DevSync is listening for project changes.", header: "Watching for changes…" };
+}
+function emptyState() { return { mode: "watching" as AuroraMode, title: "Watching", description: "Add a project to begin.", header: "Waiting for a project…" }; }
+function isSyncReady(workspace: Workspace) { return !workspace.unavailable && !workspace.metadataError && !!(workspace.xcodeContainerPath && workspace.selectedScheme); }
+function stateLabel(state: DeploymentState) { return ({ idle: "Ready", preparing: "Preparing", preBuilding: "Pre-Build", preBuildSucceeded: "Pre-Build complete", building: "Building", buildFailed: "Build failed", buildSucceeded: "Build complete", signing: "Signing", waitingForDevice: "Waiting for iPhone", installing: "Installing", installFailed: "Install failed", installed: "Completed" })[state]; }
+function footerStatus(workspace: Workspace, device?: DevSyncDevice) { if (workspace.metadataError) return "Project needs attention"; if (workspace.changesDetected) return "Changes detected"; if (device) return "DevSync is ready"; return "Waiting for iPhone"; }
+function signingSummary(workspace: Workspace) { const status = workspace.signingStatus; if (!status) return { label: "No profile inspected", tone: "muted", detail: "Build a project to inspect signing." }; if (status.status === "expired") return { label: "Signing expired", tone: "error", detail: "Sync a fresh signed build to continue." }; if (status.status === "unknown") return { label: "Signing unavailable", tone: "muted", detail: "Build a project to inspect signing." }; if (status.status === "expiringSoon") return { label: "Signing expires soon", tone: "warning", detail: formatRemaining(status.remainingSeconds) }; return { label: "Signing available", tone: "good", detail: formatRemaining(status.remainingSeconds) }; }
+function formatRemaining(seconds?: number) { if (seconds === undefined) return "Expiration time unavailable"; if (seconds <= 0) return "Expired"; const days = Math.floor(seconds / 86400); const hours = Math.floor((seconds % 86400) / 3600); return days ? `Valid for ${days}d ${hours}h` : `Valid for ${hours}h`; }
+function compactPath(path: string) { const parts = path.split("/").filter(Boolean); return parts.length > 3 ? `~/${parts.slice(-2).join("/")}` : path.replace(/^\/Users\/[^/]+/, "~"); }
+function connection(device: DevSyncDevice) { return device.connectionState.trim().toLowerCase() === "unknown" ? "Checking device…" : `${device.connectionState}${device.connectionType ? ` over ${device.connectionType}` : ""}`; }
+function isConnected(device: DevSyncDevice) { return ["connected", "available", "online"].includes(device.connectionState.trim().toLowerCase()); }
+function formatTime(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? "—" : date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
+function bytes(value: number) { return value < 1048576 ? `${Math.ceil(value / 1024)} KB` : `${(value / 1048576).toFixed(1)} MB`; }

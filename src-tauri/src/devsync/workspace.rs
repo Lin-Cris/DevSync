@@ -11,7 +11,7 @@ use tauri::AppHandle;
 use super::{
     DevSyncError, build,
     locking::ProcessLock,
-    models::{Workspace, WorkspaceInspection, WorkspaceStore, XcodeContainer},
+    models::{ActivityEntry, Workspace, WorkspaceInspection, WorkspaceStore, XcodeContainer},
     paths::DevSyncPaths,
     signing, xcode,
 };
@@ -160,6 +160,9 @@ pub async fn add_devsync_workspace(
         source_revision: 0,
         deployed_revision: 0,
         background_state: Some("healthy".into()),
+        deployment_state: None,
+        deployment_message: None,
+        activities: vec![],
         last_build_status: None,
         last_build_at: None,
         last_artifact_path: None,
@@ -283,6 +286,71 @@ pub async fn set_devsync_pre_build_command(
     let saved = workspace.clone();
     save_store(&app, &store)?;
     Ok(saved)
+}
+
+#[tauri::command]
+pub async fn clear_devsync_activity(
+    app: AppHandle,
+    workspace_id: String,
+) -> Result<Workspace, DevSyncError> {
+    let mut store = load_store(&app)?;
+    let workspace = workspace_mut(&mut store, &workspace_id)?;
+    workspace.activities.clear();
+    workspace.updated_at = now();
+    let saved = workspace.clone();
+    save_store(&app, &store)?;
+    Ok(saved)
+}
+
+pub fn record_deployment_update_at(
+    paths: &DevSyncPaths,
+    workspace_id: &str,
+    state: &str,
+    message: &str,
+) -> Result<(), DevSyncError> {
+    let mut store = load_store_at(paths)?;
+    let workspace = workspace_mut(&mut store, workspace_id)?;
+    workspace.deployment_state = Some(state.to_string());
+    workspace.deployment_message = Some(message.to_string());
+    if let Some((kind, activity)) = deployment_activity(state, message) {
+        append_activity(workspace, kind, &activity);
+    }
+    workspace.updated_at = now();
+    save_store_at(paths, &store)
+}
+
+fn append_activity(workspace: &mut Workspace, kind: &str, message: &str) {
+    let timestamp = now();
+    if workspace.activities.last().is_some_and(|item| {
+        item.kind == kind && item.message == message && item.timestamp == timestamp
+    }) {
+        return;
+    }
+    workspace.activities.push(ActivityEntry {
+        id: format!("{}-{}", timestamp, workspace.activities.len()),
+        kind: kind.to_string(),
+        message: message.to_string(),
+        timestamp,
+    });
+    if workspace.activities.len() > 30 {
+        let overflow = workspace.activities.len() - 30;
+        workspace.activities.drain(0..overflow);
+    }
+}
+
+fn deployment_activity(state: &str, message: &str) -> Option<(&'static str, String)> {
+    match state {
+        "preparing" => Some(("sync", "Detected changes in project".into())),
+        "building" => Some(("build", "Building project…".into())),
+        "buildSucceeded" => Some(("build", "Build completed".into())),
+        "signing" => Some(("signing", "Signing build…".into())),
+        "waitingForDevice" => Some(("device", message.into())),
+        "installing" => Some(("install", "Installing on iPhone…".into())),
+        "installed" => Some(("install", "Installed on iPhone".into())),
+        "buildFailed" => Some(("error", "Build failed".into())),
+        "installFailed" => Some(("error", "Installation failed".into())),
+        _ => None,
+    }
 }
 
 pub async fn inspect_and_persist(

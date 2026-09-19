@@ -23,12 +23,13 @@ use crate::{
     },
     devsync::{
         add_devsync_workspace, build_devsync_workspace, clean_devsync_build_cache,
-        deploy_devsync_workspace, disable_background_service, enable_background_service,
-        get_background_service_status, get_devsync_build_cache_usage, get_devsync_device_selection,
-        get_devsync_launch_at_login, list_devsync_devices, list_devsync_workspaces,
-        reconcile_refresh_scheduler, refresh_devsync_workspace, remove_devsync_workspace,
-        select_devsync_container, select_devsync_device, select_devsync_scheme,
-        set_devsync_auto_sync, set_devsync_launch_at_login, set_devsync_pre_build_command,
+        clear_devsync_activity, deploy_devsync_workspace, disable_background_service,
+        enable_background_service, get_background_service_status, get_devsync_build_cache_usage,
+        get_devsync_device_selection, get_devsync_launch_at_login, list_devsync_devices,
+        list_devsync_workspaces, reconcile_refresh_scheduler, refresh_devsync_workspace,
+        remove_devsync_workspace, select_devsync_container, select_devsync_device,
+        select_devsync_scheme, set_devsync_auto_sync, set_devsync_launch_at_login,
+        set_devsync_pre_build_command,
     },
     pairing::{
         delete_stored_rppairing, export_pairing_cmd, has_stored_rppairing, installed_pairing_apps,
@@ -171,6 +172,7 @@ pub fn run() {
             deploy_devsync_workspace,
             clean_devsync_build_cache,
             get_devsync_build_cache_usage,
+            clear_devsync_activity,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

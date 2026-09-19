@@ -14,6 +14,7 @@ export const devsyncApi = {
   selectDevice: (device: DevSyncDevice) => invoke<DeviceSelection>("select_devsync_device", { device }),
   setAutoSync: (workspaceId: string, enabled: boolean) => invoke<Workspace>("set_devsync_auto_sync", { workspaceId, enabled }),
   setPreBuildCommand: (workspaceId: string, command: string) => invoke<Workspace>("set_devsync_pre_build_command", { workspaceId, command }),
+  clearActivity: (workspaceId: string) => invoke<Workspace>("clear_devsync_activity", { workspaceId }),
   getLaunchAtLogin: () => invoke<boolean>("get_devsync_launch_at_login"),
   setLaunchAtLogin: (enabled: boolean) => invoke<boolean>("set_devsync_launch_at_login", { enabled }),
   deployWorkspace: (workspaceId: string) => invoke<DeploymentResult>("deploy_devsync_workspace", { workspaceId }),

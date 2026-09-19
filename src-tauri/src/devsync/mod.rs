@@ -25,10 +25,10 @@ pub use device::{get_devsync_device_selection, list_devsync_devices, select_devs
 pub use preferences::{get_devsync_launch_at_login, set_devsync_launch_at_login};
 pub use scheduler::reconcile as reconcile_refresh_scheduler;
 pub use workspace::{
-    add_devsync_workspace, clean_devsync_build_cache, get_devsync_build_cache_usage,
-    list_devsync_workspaces, refresh_devsync_workspace, remove_devsync_workspace,
-    select_devsync_container, select_devsync_scheme, set_devsync_auto_sync,
-    set_devsync_pre_build_command,
+    add_devsync_workspace, clean_devsync_build_cache, clear_devsync_activity,
+    get_devsync_build_cache_usage, list_devsync_workspaces, refresh_devsync_workspace,
+    remove_devsync_workspace, select_devsync_container, select_devsync_scheme,
+    set_devsync_auto_sync, set_devsync_pre_build_command,
 };
 
 mod background_service;

@@ -20,24 +20,25 @@ pub trait DeploymentReporter: Send + Sync {
     fn report(&self, workspace_id: &str, state: DeploymentState, message: &str);
 }
 
-pub struct NoopDeploymentReporter;
-
-impl DeploymentReporter for NoopDeploymentReporter {
-    fn report(&self, _workspace_id: &str, _state: DeploymentState, _message: &str) {}
-}
-
 pub(crate) struct TauriDeploymentReporter<'a> {
     window: &'a WebviewWindow,
+    paths: &'a DevSyncPaths,
 }
 
 impl<'a> TauriDeploymentReporter<'a> {
-    pub(crate) fn new(window: &'a WebviewWindow) -> Self {
-        Self { window }
+    pub(crate) fn new(window: &'a WebviewWindow, paths: &'a DevSyncPaths) -> Self {
+        Self { window, paths }
     }
 }
 
 impl DeploymentReporter for TauriDeploymentReporter<'_> {
     fn report(&self, workspace_id: &str, state: DeploymentState, message: &str) {
+        let state_name = serde_json::to_string(&state)
+            .unwrap_or_else(|_| "\"unknown\"".into())
+            .trim_matches('"')
+            .to_string();
+        let _ =
+            workspace::record_deployment_update_at(self.paths, workspace_id, &state_name, message);
         let _ = self.window.emit(
             "devsync-deployment",
             DeploymentUpdate {
@@ -49,6 +50,27 @@ impl DeploymentReporter for TauriDeploymentReporter<'_> {
     }
 }
 
+pub(crate) struct PersistedDeploymentReporter<'a> {
+    paths: &'a DevSyncPaths,
+}
+
+impl<'a> PersistedDeploymentReporter<'a> {
+    pub(crate) fn new(paths: &'a DevSyncPaths) -> Self {
+        Self { paths }
+    }
+}
+
+impl DeploymentReporter for PersistedDeploymentReporter<'_> {
+    fn report(&self, workspace_id: &str, state: DeploymentState, message: &str) {
+        let state_name = serde_json::to_string(&state)
+            .unwrap_or_else(|_| "\"unknown\"".into())
+            .trim_matches('"')
+            .to_string();
+        let _ =
+            workspace::record_deployment_update_at(self.paths, workspace_id, &state_name, message);
+    }
+}
+
 #[tauri::command]
 pub async fn deploy_devsync_workspace(
     app: AppHandle,
@@ -56,7 +78,10 @@ pub async fn deploy_devsync_workspace(
     workspace_id: String,
 ) -> Result<DeploymentResult, DevSyncError> {
     let paths = DevSyncPaths::from_app(&app)?;
-    let reporter = TauriDeploymentReporter { window: &window };
+    let reporter = TauriDeploymentReporter {
+        window: &window,
+        paths: &paths,
+    };
     deploy_workspace(&paths, &workspace_id, &reporter).await
 }
 

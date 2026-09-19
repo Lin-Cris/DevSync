@@ -205,6 +205,18 @@ fn mark_changed(paths: &DevSyncPaths, workspace_id: &str) -> Result<bool, DevSyn
     let should_reconcile = workspace_record.auto_sync && workspace_record.changes_detected;
     workspace_record.background_state = Some("changesDetected".into());
     workspace_record.updated_at = workspace::now();
+    workspace_record
+        .activities
+        .push(super::models::ActivityEntry {
+            id: format!("{}-{}", workspace::now(), workspace_record.activities.len()),
+            kind: "watch".into(),
+            message: "Detected changes in project".into(),
+            timestamp: workspace::now(),
+        });
+    if workspace_record.activities.len() > 30 {
+        let overflow = workspace_record.activities.len() - 30;
+        workspace_record.activities.drain(0..overflow);
+    }
     workspace::save_store_at(paths, &store)?;
     Ok(should_reconcile)
 }

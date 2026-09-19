@@ -58,6 +58,12 @@ pub struct Workspace {
     pub deployed_revision: u64,
     #[serde(default)]
     pub background_state: Option<String>,
+    #[serde(default)]
+    pub deployment_state: Option<String>,
+    #[serde(default)]
+    pub deployment_message: Option<String>,
+    #[serde(default)]
+    pub activities: Vec<ActivityEntry>,
     pub last_build_status: Option<String>,
     pub last_build_at: Option<String>,
     pub last_artifact_path: Option<String>,
@@ -71,6 +77,15 @@ pub struct Workspace {
     pub last_install_log_path: Option<String>,
     pub metadata_error: Option<String>,
     pub unavailable: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityEntry {
+    pub id: String,
+    pub kind: String,
+    pub message: String,
+    pub timestamp: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

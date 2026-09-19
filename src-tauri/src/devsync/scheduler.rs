@@ -5,7 +5,7 @@ use tokio::time::interval;
 
 use super::{
     DevSyncError, agent, deployment,
-    deployment::{DeploymentReporter, NoopDeploymentReporter},
+    deployment::{DeploymentReporter, PersistedDeploymentReporter},
     device,
     paths::DevSyncPaths,
     refresh_policy::{RefreshDecision, RefreshPolicy},
@@ -36,13 +36,13 @@ pub async fn reconcile(app: &AppHandle) -> Result<(), DevSyncError> {
     let Some(window) = app.get_webview_window("main") else {
         return Ok(());
     };
-    let reporter = deployment::TauriDeploymentReporter::new(&window);
+    let reporter = deployment::TauriDeploymentReporter::new(&window, &paths);
     reconcile_with_reporter(&paths, &reporter, false).await
 }
 
 pub async fn reconcile_agent(paths: &DevSyncPaths) -> Result<(), DevSyncError> {
     agent::log(paths, "signing renewal check");
-    let reporter = NoopDeploymentReporter;
+    let reporter = PersistedDeploymentReporter::new(&paths);
     reconcile_with_reporter(paths, &reporter, true).await
 }
 
