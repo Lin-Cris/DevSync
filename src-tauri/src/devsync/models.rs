@@ -117,6 +117,8 @@ pub struct WorkspaceInspection {
 pub struct WorkspaceStore {
     pub schema_version: u32,
     pub workspaces: Vec<Workspace>,
+    #[serde(default)]
+    pub active_workspace_id: Option<String>,
 }
 
 impl Default for WorkspaceStore {
@@ -124,6 +126,7 @@ impl Default for WorkspaceStore {
         Self {
             schema_version: 1,
             workspaces: vec![],
+            active_workspace_id: None,
         }
     }
 }

@@ -49,9 +49,14 @@ export const WorkspaceDashboard = () => {
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const items = await devsyncApi.listWorkspaces();
+      const [items, activeWorkspaceId] = await Promise.all([
+        devsyncApi.listWorkspaces(),
+        devsyncApi.getActiveWorkspace(),
+      ]);
       setWorkspaces(items);
-      setSelectedWorkspaceId((current) => current && items.some((item) => item.id === current) ? current : items[0]?.id);
+      setSelectedWorkspaceId((current) => activeWorkspaceId && items.some((item) => item.id === activeWorkspaceId)
+        ? activeWorkspaceId
+        : current && items.some((item) => item.id === current) ? current : items[0]?.id);
       setLoading(false);
       devsyncApi.getBuildCacheUsage().then((usage) => setCache(usage.bytes)).catch(() => undefined);
       void refreshDetails(items);
@@ -62,10 +67,15 @@ export const WorkspaceDashboard = () => {
   }, [refreshDetails]);
 
   const refreshWorkspaces = useCallback(async () => {
-    const items = await devsyncApi.listWorkspaces().catch(() => undefined);
+    const [items, activeWorkspaceId] = await Promise.all([
+      devsyncApi.listWorkspaces(),
+      devsyncApi.getActiveWorkspace(),
+    ]).catch(() => [undefined, undefined] as const);
     if (!items) return;
     setWorkspaces(items);
-    setSelectedWorkspaceId((current) => current && items.some((item) => item.id === current) ? current : items[0]?.id);
+    setSelectedWorkspaceId((current) => activeWorkspaceId && items.some((item) => item.id === activeWorkspaceId)
+      ? activeWorkspaceId
+      : current && items.some((item) => item.id === current) ? current : items[0]?.id);
   }, []);
 
   const refreshDevices = useCallback(async (notifyOnError = true) => {
@@ -100,6 +110,15 @@ export const WorkspaceDashboard = () => {
     if (!folder || Array.isArray(folder)) return;
     try { inspect(await devsyncApi.addWorkspace(folder)); setPage("project"); } catch (error) { toast.error(`Unable to add project: ${fail(error)}`); }
   };
+  const activateWorkspace = async (workspaceId: string) => {
+    try {
+      const activeWorkspaceId = await devsyncApi.selectWorkspace(workspaceId);
+      setSelectedWorkspaceId(activeWorkspaceId);
+      setPage("project");
+    } catch (error) {
+      toast.error(`Unable to switch project: ${fail(error)}`);
+    }
+  };
   const chooseDevice = async (id: string) => { const device = devices.find((item) => item.id === id); if (device) setSelection(await devsyncApi.selectDevice(device)); };
   const sync = async (workspace: Workspace) => {
     setSelectedWorkspaceId(workspace.id); setPage("project"); setSyncing(workspace.id);
@@ -120,7 +139,12 @@ export const WorkspaceDashboard = () => {
   };
   const remove = async (workspace: Workspace) => {
     if (!confirm(`Remove ${workspace.displayName} from DevSync? The project will not be deleted.`)) return;
-    try { await devsyncApi.removeWorkspace(workspace.id); setWorkspaces((current) => current.filter((item) => item.id !== workspace.id)); setSelectedWorkspaceId((current) => current === workspace.id ? undefined : current); } catch (error) { toast.error(`Unable to remove project: ${fail(error)}`); }
+    try {
+      await devsyncApi.removeWorkspace(workspace.id);
+      const activeWorkspaceId = await devsyncApi.getActiveWorkspace();
+      setWorkspaces((current) => current.filter((item) => item.id !== workspace.id));
+      setSelectedWorkspaceId(activeWorkspaceId ?? undefined);
+    } catch (error) { toast.error(`Unable to remove project: ${fail(error)}`); }
   };
   const setBackground = async (enabled: boolean) => {
     setBackgroundService((current) => ({ ...current, state: "starting" }));
@@ -148,7 +172,7 @@ export const WorkspaceDashboard = () => {
       <div className="sidebar-caption"><span>Build. Sign. Install.</span><span>Automatically.</span></div>
     </aside>
     <main className="aurora-content">
-      {page === "project" && <ProjectView project={project} projects={workspaces} inspection={project ? details[project.id] : undefined} device={device} selection={selection} devices={devices} loading={loading} building={building === project?.id} syncing={syncing === project?.id} update={project ? updates[project.id] : undefined} backgroundService={backgroundService} add={add} selectProject={setSelectedWorkspaceId} chooseDevice={chooseDevice} setBackground={setBackground} sync={sync} build={build} remove={remove} inspect={inspect} refresh={reload} />}
+      {page === "project" && <ProjectView project={project} projects={workspaces} inspection={project ? details[project.id] : undefined} device={device} selection={selection} devices={devices} loading={loading} building={building === project?.id} syncing={syncing === project?.id} update={project ? updates[project.id] : undefined} backgroundService={backgroundService} add={add} selectProject={activateWorkspace} chooseDevice={chooseDevice} setBackground={setBackground} sync={sync} build={build} remove={remove} inspect={inspect} refresh={reload} />}
       {page === "devices" && <Devices devices={devices} selection={selection} choose={chooseDevice} refresh={refreshDevices} />}
       {page === "signing" && <Signing projects={workspaces} backgroundService={backgroundService} setBackground={setBackground} />}
       {page === "settings" && <Settings login={login} cache={cache} backgroundService={backgroundService} setBackground={setBackground} setLogin={async (enabled) => { try { setLogin(await devsyncApi.setLaunchAtLogin(enabled)); } catch (error) { toast.error(`Unable to update setting: ${fail(error)}`); } }} clean={async () => { if (!confirm("Clean DevSync-managed build cache? Your next sync will rebuild.")) return; try { setCache((await devsyncApi.cleanBuildCache()).bytes); toast.success("Build cache cleaned"); } catch (error) { toast.error(`Unable to clean cache: ${fail(error)}`); } }} />}
@@ -159,15 +183,27 @@ export const WorkspaceDashboard = () => {
 
 const Nav = ({ active, icon, text, go }: { active: boolean; icon: ReactNode; text: string; go: () => void }) => <button className={active ? "active" : ""} onClick={go}>{icon}<span>{text}</span></button>;
 
-const ProjectView = ({ project, projects, inspection, device, selection, devices, loading, building, syncing, update, backgroundService, add, selectProject, chooseDevice, setBackground, sync, build, remove, inspect, refresh }: { project?: Workspace; projects: Workspace[]; inspection?: WorkspaceInspection; device?: DevSyncDevice; selection: DeviceSelection; devices: DevSyncDevice[]; loading: boolean; building: boolean; syncing: boolean; update?: DeploymentUpdate; backgroundService: BackgroundServiceStatus; add: () => void; selectProject: (id: string) => void; chooseDevice: (id: string) => void; setBackground: (enabled: boolean) => void; sync: (workspace: Workspace) => void; build: (workspace: Workspace) => void; remove: (workspace: Workspace) => void; inspect: (inspection: WorkspaceInspection) => void; refresh: () => void }) => {
+const ProjectView = ({ project, projects, inspection, device, selection, devices, loading, building, syncing, update, backgroundService, add, selectProject, chooseDevice, setBackground, sync, build, remove, inspect, refresh }: { project?: Workspace; projects: Workspace[]; inspection?: WorkspaceInspection; device?: DevSyncDevice; selection: DeviceSelection; devices: DevSyncDevice[]; loading: boolean; building: boolean; syncing: boolean; update?: DeploymentUpdate; backgroundService: BackgroundServiceStatus; add: () => void; selectProject: (id: string) => void | Promise<void>; chooseDevice: (id: string) => void; setBackground: (enabled: boolean) => void; sync: (workspace: Workspace) => void; build: (workspace: Workspace) => void; remove: (workspace: Workspace) => void; inspect: (inspection: WorkspaceInspection) => void; refresh: () => void }) => {
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
   const state = project ? deriveState(project, update, building, syncing, device) : emptyState();
   const signingStatus = project ? signingSummary(project) : { label: "No profile inspected", tone: "muted", detail: "Build a project to inspect signing." };
   if (loading && !project) return <div className="empty-state"><FiLoader className="spin" /><p>Loading DevSync…</p></div>;
   if (!project) return <div className="empty-state"><FiFolder /><h2>Add your first project</h2><p>Choose an existing Xcode project or workspace to begin.</p><button className="aurora-button" onClick={add}><FiPlus /> Add Project</button></div>;
-  return <><header className="project-header"><div><span className="eyebrow">PROJECT</span><div className="project-picker"><select value={project.id} aria-label="Current project" onChange={(event) => selectProject(event.target.value)}>{projects.map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select><FiChevronDown /></div><p className="project-path">{compactPath(project.folderPath)}</p></div><div className="watching-label"><span className={`watch-ring ${state.mode === "watching" ? "active" : ""}`} />{state.header}</div></header>
+  return <><header className="project-header"><div><span className="eyebrow">PROJECT</span><div className="project-picker-row"><div className="project-picker-wrap"><button className="project-picker-button" aria-label="Current project" aria-expanded={projectMenuOpen} aria-haspopup="menu" onClick={() => setProjectMenuOpen((open) => !open)}><span>{project.displayName}</span><FiChevronDown /></button>{projectMenuOpen && <ProjectMenu projects={projects} activeId={project.id} selectProject={selectProject} add={add} manage={() => { setProjectMenuOpen(false); setManageOpen(true); }} close={() => setProjectMenuOpen(false)} />}</div><button className="ghost-button add-project-button" onClick={() => void add()}><FiPlus /> Add Project</button></div><p className="project-path">{compactPath(project.folderPath)}</p></div><div className="watching-label"><span className={`watch-ring ${state.mode === "watching" ? "active" : ""}`} />{state.header}</div></header>
+    {manageOpen && <ProjectManager projects={projects} activeId={project.id} selectProject={selectProject} remove={remove} close={() => setManageOpen(false)} />}
     <div className="project-grid"><section className="state-column"><div className={`aurora-field mode-${state.mode}`}><div className="aurora-orb"><div className="orb-core" /><div className="orb-shine" /></div><div className="state-copy"><h1>{state.title}</h1><p>{state.description}</p></div></div><StepProgress mode={state.mode} /><div className="project-actions"><button className="ghost-button" onClick={() => setDetailsOpen((open) => !open)}><FiTool /> Project details</button><button className="aurora-button" disabled={!isSyncReady(project) || building || syncing} onClick={() => sync(project)}>{syncing ? <FiLoader className="spin" /> : <FiActivity />} {syncing ? "Syncing…" : "Sync Now"}</button></div>{detailsOpen && <ProjectDetails workspace={project} inspection={inspection} building={building} syncing={syncing} inspect={inspect} build={build} remove={remove} refresh={refresh} />}</section><aside className="right-rail"><DeviceCard device={device} selected={selection.selectedDeviceId} devices={devices} choose={chooseDevice} /><SigningCard status={signingStatus} enabled={backgroundService.enabled} setBackground={setBackground} /><ActivityCard workspace={project} /><p className="rail-note">A faster path from idea to device.</p></aside></div></>;
 };
+
+const ProjectMenu = ({ projects, activeId, selectProject, add, manage, close }: { projects: Workspace[]; activeId: string; selectProject: (id: string) => void | Promise<void>; add: () => void; manage: () => void; close: () => void }) => <div className="project-menu" role="menu">
+  {projects.map((item) => <button key={item.id} role="menuitem" className="project-menu-item" onClick={() => { close(); if (item.id !== activeId) void selectProject(item.id); }}><span>{item.displayName}</span>{item.id === activeId && <FiCheck />}</button>)}
+  <div className="project-menu-separator" />
+  <button role="menuitem" className="project-menu-item project-menu-action" onClick={() => { close(); void add(); }}><FiPlus /><span>Connect Project…</span></button>
+  <button role="menuitem" className="project-menu-item project-menu-action" onClick={manage}><FiTool /><span>Manage Projects…</span></button>
+</div>;
+
+const ProjectManager = ({ projects, activeId, selectProject, remove, close }: { projects: Workspace[]; activeId: string; selectProject: (id: string) => void | Promise<void>; remove: (workspace: Workspace) => void; close: () => void }) => <section className="project-manager"><div className="project-manager-heading"><div><span className="eyebrow">PROJECTS</span><h2>Manage Projects</h2></div><button className="ghost-button" onClick={close}>Done</button></div><div className="project-manager-list">{projects.map((item) => <div className="project-manager-row" key={item.id}><div><b>{item.displayName}{item.id === activeId && <span className="project-active-badge">Active</span>}</b><small>{compactPath(item.folderPath)}</small></div><div className="project-manager-actions"><button className="ghost-button" disabled={item.id === activeId} onClick={() => void selectProject(item.id)}>Switch</button><button className="danger-button" onClick={() => remove(item)}>Disconnect</button></div></div>)}</div></section>;
 
 const StepProgress = ({ mode }: { mode: AuroraMode }) => { const steps = [{ label: "Watch", sub: mode === "watching" ? "Active" : "Completed" }, { label: "Build", sub: mode === "building" ? "In progress" : mode === "watching" || mode === "failed" ? "Pending" : "Completed" }, { label: "Sign", sub: mode === "signing" ? "In progress" : ["installing", "ready"].includes(mode) ? "Completed" : "Pending" }, { label: "Install", sub: mode === "installing" ? "In progress" : mode === "ready" ? "Completed" : "Pending" }]; const current = mode === "building" ? 1 : mode === "signing" ? 2 : mode === "installing" ? 3 : mode === "ready" ? 4 : 0; return <div className="step-progress">{steps.map((step, index) => <div className="step-wrap" key={step.label}><div className={`step-line ${index < current ? "complete" : ""}`} /><div className={`step ${index < current ? "complete" : index === current ? "current" : "pending"}`}>{index < current ? <FiCheck /> : index === current ? <span /> : <FiCircle />}</div><b>{index + 1} {step.label}</b><small>{step.sub}</small></div>)}</div>; };
 

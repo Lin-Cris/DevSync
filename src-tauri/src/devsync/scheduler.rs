@@ -52,12 +52,17 @@ async fn reconcile_with_reporter(
     is_agent: bool,
 ) -> Result<(), DevSyncError> {
     let policy = RefreshPolicy::default();
-    let workspaces = workspace::list_workspaces_at(paths)?;
+    let store = workspace::load_store_at(paths)?;
+    let active_workspace_id = workspace::active_workspace_id(&store);
+    let workspaces = store.workspaces;
     // Signing renewal is a build operation. Device discovery is only needed
     // before a source sync that must be installed immediately; doing it here
     // for every workspace used to make a CoreDevice timeout prevent Xcode
     // from refreshing an otherwise valid provisioning profile.
     let requires_device_preflight = workspaces.iter().any(|item| {
+        if active_workspace_id.as_deref() != Some(item.id.as_str()) {
+            return false;
+        }
         if item.unavailable || item.metadata_error.is_some() || item.selected_scheme.is_none() {
             return false;
         }
@@ -96,14 +101,24 @@ async fn reconcile_with_reporter(
     };
 
     for item in workspaces {
+        let is_active = active_workspace_id.as_deref() == Some(item.id.as_str());
         if item.unavailable || item.metadata_error.is_some() || item.selected_scheme.is_none() {
+            if !is_active {
+                continue;
+            }
             set_state(paths, &item.id, "needsAttention")?;
             continue;
         }
         let signing_decision = policy.evaluate(item.signing_status.as_ref());
-        let source_pending = item.auto_sync && item.changes_detected;
+        // Source Auto Sync is scoped to the active project. Signing renewal
+        // remains per-project so saved projects keep their signing metadata
+        // healthy while the user works on another project.
+        let source_pending = source_sync_pending(is_active, item.auto_sync, item.changes_detected);
         let signing_pending = signing_refresh_pending(signing_decision);
         if !source_pending && !signing_pending {
+            if !is_active {
+                continue;
+            }
             set_state(
                 paths,
                 &item.id,
@@ -202,6 +217,10 @@ fn requires_device_preflight(source_pending: bool, signing_pending: bool) -> boo
     source_pending && !signing_pending
 }
 
+fn source_sync_pending(is_active: bool, auto_sync: bool, changes_detected: bool) -> bool {
+    is_active && auto_sync && changes_detected
+}
+
 fn signing_refresh_pending(decision: RefreshDecision) -> bool {
     matches!(
         decision,
@@ -213,7 +232,9 @@ fn signing_refresh_pending(decision: RefreshDecision) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{SCHEDULER_INTERVAL, requires_device_preflight, signing_refresh_pending};
+    use super::{
+        SCHEDULER_INTERVAL, requires_device_preflight, signing_refresh_pending, source_sync_pending,
+    };
     use crate::devsync::refresh_policy::RefreshDecision;
 
     #[test]
@@ -234,5 +255,12 @@ mod tests {
         assert!(signing_refresh_pending(RefreshDecision::RefreshNeeded));
         assert!(signing_refresh_pending(RefreshDecision::RefreshUrgently));
         assert!(!signing_refresh_pending(RefreshDecision::NoAction));
+    }
+
+    #[test]
+    fn source_auto_sync_only_runs_for_the_active_workspace() {
+        assert!(source_sync_pending(true, true, true));
+        assert!(!source_sync_pending(false, true, true));
+        assert!(!source_sync_pending(true, false, true));
     }
 }

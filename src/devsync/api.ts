@@ -3,6 +3,8 @@ import type { BackgroundServiceStatus, BuildCacheUsage, BuildResult, DeploymentR
 
 export const devsyncApi = {
   listWorkspaces: () => invoke<Workspace[]>("list_devsync_workspaces"),
+  getActiveWorkspace: () => invoke<string | null>("get_devsync_active_workspace"),
+  selectWorkspace: (workspaceId: string) => invoke<string>("select_devsync_workspace", { workspaceId }),
   addWorkspace: (folderPath: string) => invoke<WorkspaceInspection>("add_devsync_workspace", { folderPath }),
   refreshWorkspace: (workspaceId: string) => invoke<WorkspaceInspection>("refresh_devsync_workspace", { workspaceId }),
   removeWorkspace: (workspaceId: string) => invoke<void>("remove_devsync_workspace", { workspaceId }),

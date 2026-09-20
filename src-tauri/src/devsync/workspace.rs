@@ -13,7 +13,7 @@ use super::{
     locking::ProcessLock,
     models::{ActivityEntry, Workspace, WorkspaceInspection, WorkspaceStore, XcodeContainer},
     paths::DevSyncPaths,
-    signing, xcode,
+    scheduler, signing, xcode,
 };
 
 const STORE_KEY: &str = "workspaceState";
@@ -106,6 +106,28 @@ pub async fn list_devsync_workspaces(app: AppHandle) -> Result<Vec<Workspace>, D
 }
 
 #[tauri::command]
+pub async fn get_devsync_active_workspace(app: AppHandle) -> Result<Option<String>, DevSyncError> {
+    let store = load_store(&app)?;
+    Ok(active_workspace_id(&store))
+}
+
+#[tauri::command]
+pub async fn select_devsync_workspace(
+    app: AppHandle,
+    workspace_id: String,
+) -> Result<String, DevSyncError> {
+    let mut store = load_store(&app)?;
+    workspace_mut(&mut store, &workspace_id)?;
+    store.active_workspace_id = Some(workspace_id.clone());
+    save_store(&app, &store)?;
+    let reconcile_app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = scheduler::reconcile(&reconcile_app).await;
+    });
+    Ok(workspace_id)
+}
+
+#[tauri::command]
 pub async fn add_devsync_workspace(
     app: AppHandle,
     folder_path: String,
@@ -178,6 +200,9 @@ pub async fn add_devsync_workspace(
     };
     let id = workspace.id.clone();
     store.workspaces.push(workspace);
+    if store.active_workspace_id.is_none() {
+        store.active_workspace_id = Some(id.clone());
+    }
     save_store(&app, &store)?;
     inspect_and_persist(&app, id).await
 }
@@ -195,6 +220,14 @@ pub async fn remove_devsync_workspace(
     app: AppHandle,
     workspace_id: String,
 ) -> Result<(), DevSyncError> {
+    let paths = DevSyncPaths::from_app(&app)?;
+    let _operation_lock = ProcessLock::try_acquire(&paths.operation_lock_path(&workspace_id))?
+        .ok_or_else(|| {
+            DevSyncError::new(
+                "operation_in_progress",
+                "Wait for the active build or deployment to finish before disconnecting this project.",
+            )
+        })?;
     let mut store = load_store(&app)?;
     let before = store.workspaces.len();
     store
@@ -205,6 +238,12 @@ pub async fn remove_devsync_workspace(
             "workspace_not_found",
             "Workspace no longer exists.",
         ));
+    }
+    if store.active_workspace_id.as_deref() == Some(workspace_id.as_str()) {
+        store.active_workspace_id = store
+            .workspaces
+            .first()
+            .map(|workspace| workspace.id.clone());
     }
     save_store(&app, &store)
 }
@@ -576,6 +615,25 @@ pub fn workspace_mut<'a>(
         .ok_or_else(|| DevSyncError::new("workspace_not_found", "Workspace no longer exists."))
 }
 
+pub fn active_workspace_id(store: &WorkspaceStore) -> Option<String> {
+    store
+        .active_workspace_id
+        .as_ref()
+        .filter(|id| {
+            store
+                .workspaces
+                .iter()
+                .any(|workspace| &workspace.id == *id)
+        })
+        .cloned()
+        .or_else(|| {
+            store
+                .workspaces
+                .first()
+                .map(|workspace| workspace.id.clone())
+        })
+}
+
 pub fn now() -> String {
     chrono::Utc::now().to_rfc3339()
 }
@@ -597,5 +655,34 @@ mod tests {
         let json = serde_json::to_value(state).unwrap();
         assert_eq!(json["schemaVersion"], 1);
         assert!(json["workspaces"].is_array());
+    }
+
+    #[test]
+    fn active_workspace_falls_back_to_the_first_saved_workspace() {
+        let state = WorkspaceStore {
+            workspaces: vec![Workspace {
+                id: "first".into(),
+                ..test_workspace()
+            }],
+            ..WorkspaceStore::default()
+        };
+        assert_eq!(active_workspace_id(&state).as_deref(), Some("first"));
+    }
+
+    fn test_workspace() -> Workspace {
+        serde_json::from_value(serde_json::json!({
+            "id": "test", "folderPath": "/tmp/test", "displayName": "Test",
+            "createdAt": "", "updatedAt": "", "xcodeContainerPath": null,
+            "containerType": null, "selectedScheme": null, "productName": null,
+            "bundleIdentifier": null, "buildConfiguration": "Debug", "signingTeam": null,
+            "signingStatus": null, "autoSync": false, "changesDetected": false,
+            "backgroundState": null, "deploymentState": null, "deploymentMessage": null,
+            "activities": [], "lastBuildStatus": null, "lastBuildAt": null,
+            "lastArtifactPath": null, "lastBuildLogPath": null,
+            "lastInstallStatus": null, "lastInstallAt": null, "lastInstallDeviceId": null,
+            "lastInstalledArtifactPath": null, "lastInstallLogPath": null,
+            "metadataError": null, "unavailable": false
+        }))
+        .unwrap()
     }
 }

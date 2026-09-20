@@ -198,11 +198,13 @@ async fn mark_changed_with_retry(
 
 fn mark_changed(paths: &DevSyncPaths, workspace_id: &str) -> Result<bool, DevSyncError> {
     let mut store = workspace::load_store_at(paths)?;
+    let is_active = workspace::active_workspace_id(&store).as_deref() == Some(workspace_id);
     let workspace_record = workspace::workspace_mut(&mut store, workspace_id)?;
     workspace_record.source_revision = workspace_record.source_revision.saturating_add(1);
     workspace_record.changes_detected =
         workspace_record.source_revision != workspace_record.deployed_revision;
-    let should_reconcile = workspace_record.auto_sync && workspace_record.changes_detected;
+    let should_reconcile =
+        workspace_record.auto_sync && workspace_record.changes_detected && is_active;
     workspace_record.background_state = Some("changesDetected".into());
     workspace_record.updated_at = workspace::now();
     workspace_record

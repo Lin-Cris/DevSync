@@ -24,12 +24,12 @@ use crate::{
     devsync::{
         add_devsync_workspace, build_devsync_workspace, clean_devsync_build_cache,
         clear_devsync_activity, deploy_devsync_workspace, disable_background_service,
-        enable_background_service, get_background_service_status, get_devsync_build_cache_usage,
-        get_devsync_device_selection, get_devsync_launch_at_login, list_devsync_devices,
-        list_devsync_workspaces, reconcile_refresh_scheduler, refresh_devsync_workspace,
-        remove_devsync_workspace, select_devsync_container, select_devsync_device,
-        select_devsync_scheme, set_devsync_auto_sync, set_devsync_launch_at_login,
-        set_devsync_pre_build_command,
+        enable_background_service, get_background_service_status, get_devsync_active_workspace,
+        get_devsync_build_cache_usage, get_devsync_device_selection, get_devsync_launch_at_login,
+        list_devsync_devices, list_devsync_workspaces, reconcile_refresh_scheduler,
+        refresh_devsync_workspace, remove_devsync_workspace, select_devsync_container,
+        select_devsync_device, select_devsync_scheme, select_devsync_workspace,
+        set_devsync_auto_sync, set_devsync_launch_at_login, set_devsync_pre_build_command,
     },
     pairing::{
         delete_stored_rppairing, export_pairing_cmd, has_stored_rppairing, installed_pairing_apps,
@@ -153,6 +153,8 @@ pub fn run() {
             cancel_pairing,
             has_stored_rppairing,
             list_devsync_workspaces,
+            get_devsync_active_workspace,
+            select_devsync_workspace,
             add_devsync_workspace,
             refresh_devsync_workspace,
             remove_devsync_workspace,
@@ -184,7 +186,7 @@ pub fn run_agent() -> Result<(), String> {
 
 fn setup_menu_bar(app: &tauri::App) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open DevSync", true, None::<&str>)?;
-    let sync_all = MenuItem::with_id(app, "sync-all", "Sync All", true, None::<&str>)?;
+    let sync_all = MenuItem::with_id(app, "sync-all", "Sync Active Project", true, None::<&str>)?;
     let status = MenuItem::with_id(
         app,
         "status",
