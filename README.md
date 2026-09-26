@@ -1,35 +1,32 @@
 # DevSync
 
-DevSync keeps Xcode apps built, signed, and synced to a paired iPhone over Wi-Fi.
+Build, sign, and sync Xcode apps to a paired iPhone over Wi-Fi. DevSync uses the signing already configured in your Xcode project.
 
 [![Build DevSync](https://github.com/Lin-Cris/DevSync/actions/workflows/build.yml/badge.svg)](https://github.com/Lin-Cris/DevSync/actions/workflows/build.yml)
 [![Latest release](https://img.shields.io/github/v/release/Lin-Cris/DevSync?display_name=tag&sort=semver)](https://github.com/Lin-Cris/DevSync/releases/latest)
 
-## Download
+[Download for macOS](https://github.com/Lin-Cris/DevSync/releases/latest/download/DevSync-darwin-universal.dmg) · [All releases](https://github.com/Lin-Cris/DevSync/releases/latest)
 
-### macOS
+## What DevSync does
 
-[**Download DevSync for macOS**](https://github.com/Lin-Cris/DevSync/releases/latest/download/DevSync-darwin-universal.dmg) · [View all releases](https://github.com/Lin-Cris/DevSync/releases/latest)
+- Finds Xcode projects, workspaces, schemes, and signing metadata.
+- Builds with your existing Xcode signing configuration.
+- Installs the matching app on your selected iPhone with `devicectl`.
+- Offers manual Sync Now, source watching, Auto Sync, and background signing refresh.
+- Keeps build logs and cache in DevSync's application data directory.
 
-The macOS build is universal for Apple silicon and Intel Macs. If macOS warns that the app is from an unidentified developer, open it from Finder with Control-click → Open. Release signing and notarization can be enabled by the maintainer in GitHub Actions.
-
-## What it does
-
-- Discovers Xcode projects, workspaces, schemes, and signing metadata.
-- Builds with the signing already configured in Xcode.
-- Installs the fresh matching app artifact to a selected iPhone with `devicectl`.
-- Supports manual Sync Now, source watching, Auto Sync, and background refresh.
-- Renews development signing before it expires without storing Apple credentials.
-- Keeps build logs and cache inside DevSync's application data directory.
-
-DevSync does not ask for an Apple ID, copy certificates, uninstall apps, or delete project files. A user-configured Pre-Build Command is executed in the selected project directory before an Xcode build.
+DevSync does not request your Apple ID, copy certificates, uninstall apps, or delete project files. An optional **Pre-Build Command** runs in the selected project directory before Xcode builds.
 
 ## Requirements
 
-- macOS with Xcode and its command-line tools installed
-- An iPhone paired and trusted by the Mac
+- A Mac with Xcode and its command-line tools
+- An iPhone paired with and trusted by the Mac
 - Signing and capabilities configured in the Xcode project
-- Developer Mode enabled on the iPhone when required by iOS
+- Developer Mode enabled on the iPhone when iOS requires it
+
+## Install
+
+Download the [latest macOS release](https://github.com/Lin-Cris/DevSync/releases/latest). The build supports Apple silicon and Intel Macs. If macOS identifies the app as coming from an unidentified developer, Control-click it in Finder and choose **Open**. Release signing and notarization can be enabled by the maintainer in GitHub Actions.
 
 ## Build from source
 
@@ -38,22 +35,15 @@ bun install --frozen-lockfile
 bun run devsync:build
 ```
 
-For development:
+For development, run `bun tauri dev`. The local macOS app bundle is written to `src-tauri/target/debug/bundle/macos/DevSync.app`. GitHub Actions also builds Linux release artifacts; the Xcode deployment workflow is macOS-first.
 
-```sh
-bun tauri dev
-```
+## Documentation and contributing
 
-The local package is written to `src-tauri/target/debug/bundle/macos/DevSync.app`. GitHub Actions builds release artifacts for macOS and Linux; DevSync's Xcode deployment workflow is macOS-first.
+- [Architecture and operational limits](DEVSYNC.md)
+- [Contribution guide](CONTRIBUTING.md)
 
-## Project notes
-
-The detailed architecture and operational limits are documented in [DEVSYNC.md](DEVSYNC.md). The repository began as [iloader](https://github.com/nab138/iloader) and still contains its legacy sideloading modules for compatibility. The active UI and documented product path are DevSync. Original iloader source attribution and branding restrictions remain in [LICENSE-BRANDING](LICENSE-BRANDING).
-
-## Contributing
-
-Bug reports, focused fixes, and documentation improvements are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+DevSync began as [iloader](https://github.com/nab138/iloader). Legacy sideloading modules remain for compatibility; the active UI and documented workflow are DevSync.
 
 ## License
 
-DevSync source changes are released under the MIT License. See [LICENSE](LICENSE). Some legacy source and branding assets retain their original attribution and restrictions; see [LICENSE-BRANDING](LICENSE-BRANDING).
+Existing DevSync source, including previously published DevSync changes, is released under the [MIT License](LICENSE). The original iloader branding has [separate conditions](LICENSE-BRANDING). See [commercial-use details](COMMERCIAL-USE.md). Commercial use of future, separately marked original DevSync material requires prior written permission from Lin-Cris; contact the maintainer privately to discuss licensing.
